@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openStore } from '../dsh/store.js'
 
+const tinyJpeg = Buffer.from('ffd8ffc0000b080001000103011100021101031101ffd9', 'hex')
+
 test('creates a patient and exposes an empty dashboard', async () => {
   const root = await mkdtemp(join(tmpdir(), 'xyb-workbench-'))
   const store = await openStore(root)
@@ -30,6 +32,15 @@ test('creates a patient and exposes an empty dashboard', async () => {
   assert.equal(ca199.payload.valueNum, 100)
   store.confirmCandidate(ca199.id)
   assert.equal(store.listCandidates(patient.id, document.id).find((candidate) => candidate.id === ca199.id).status, 'confirmed')
+  const csv = await store.importDocument({ patientId: patient.id, title: '指标.csv', kindCode: 'lab', fileName: 'markers.csv' }, Buffer.from('日期,项目,结果,单位\n2026-10-11,CA19-9,88,U/mL\n2026-10-11,CEA,4.2,ng/mL'))
+  const csvParse = await store.parseDocument(csv.id)
+  assert.equal(csvParse.candidateCount, 2, 'CSV headers map dates, metric codes, values, and units into review candidates')
+  assert.deepEqual(store.listCandidates(patient.id, csv.id).map((candidate) => candidate.payload.metricCode).sort(), ['CA19-9', 'CEA'])
+  assert.match((await store.readExtractionResult(csv.id)).markdown, /2026-10-11,CA19-9,88/u, 'CSV source is available in the in-app parsed-content view')
+  const pdf = await store.importDocument({ patientId: patient.id, title: '扫描报告.pdf', kindCode: 'other', fileName: 'scan.pdf' }, Buffer.from('%PDF demo'))
+  const mineruParse = await store.parseDocument(pdf.id, { mineru: async () => ({ markdown: '2026-10-12\nCA19-9: 72 U/mL', engine: 'mineru-flash' }) })
+  assert.equal(mineruParse.candidateCount, 1)
+  assert.match((await store.readExtractionResult(pdf.id)).markdown, /CA19-9: 72/u, 'MinerU markdown remains available for document review')
   const documentPath = store.db.prepare('SELECT file_rel_path AS path FROM document WHERE id = ?').get(document.id).path
   store.db.prepare('UPDATE document SET file_rel_path = ? WHERE id = ?').run('../../outside.txt', document.id)
   await assert.rejects(store.readDocument(document.id), /路径无效/u)
@@ -89,11 +100,18 @@ test('creates a patient and exposes an empty dashboard', async () => {
   assert.equal((await readFile(join(root, docxArtifact.fileRelPath))).subarray(0, 2).toString(), 'PK')
   const jpegArtifact = await store.saveJpegReport(patient.id, `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64')}`)
   assert.equal((await readFile(join(root, jpegArtifact.fileRelPath))).subarray(0, 3).toString('hex'), 'ffd8ff')
+  const pdfArtifact = await store.saveVisualReport(patient.id, `data:image/jpeg;base64,${tinyJpeg.toString('base64')}`, 'pdf')
+  const pdfBytes = await readFile(join(root, pdfArtifact.fileRelPath))
+  assert.equal(pdfArtifact.formatCode, 'pdf')
+  assert.match(pdfArtifact.fileRelPath, /\.pdf$/u)
+  assert.equal(pdfBytes.subarray(0, 8).toString(), '%PDF-1.4')
+  assert.match(pdfBytes.toString('latin1'), /\/Subtype \/Image/u)
+  assert.match(pdfBytes.toString('latin1'), /\/Filter \/DCTDecode/u)
   const supportResources = store.listSupportResources()
   assert.equal(supportResources.length, 4)
   assert.ok(supportResources.some((item) => item.title.includes('荣基金')))
   assert.ok(supportResources.some((item) => item.regionCode === '上海'))
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM schema_migration').get().count, 8)
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM schema_migration').get().count, 9)
   const frozenAssessmentFks = store.db.prepare('PRAGMA foreign_key_list(match_assessment_v2)').all()
   assert.equal(frozenAssessmentFks.some((foreignKey) => foreignKey.table === 'trial_record'), false)
   assert.ok(store.db.prepare('PRAGMA table_info(trial_local_bookmark)').all().some((column) => column.name === 'match_assessment_id'))

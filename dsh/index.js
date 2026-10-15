@@ -2,7 +2,8 @@ import Schema from '@deepseek-ai/schemastery'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { openStore } from './store.js'
-import { readSettings, setDataRoot } from './settings.js'
+import { readSettings, readWorkbenchSettings, resolveMineruToken, saveWorkbenchSettings, setDataRoot } from './settings.js'
+import { extractWithMineru } from './mineru.js'
 import { searchTrials, trialDetail, trialMetadata } from './trial-store.js'
 
 export const name = 'xyb-workbench-main'
@@ -15,11 +16,12 @@ function json(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
-async function readJson(req) {
-  let raw = ''
+async function readJson(req, maxBytes = 64 * 1024) {
+  let raw = '', totalBytes = 0
   for await (const chunk of req) {
+    totalBytes += chunk.length
+    if (totalBytes > maxBytes) throw new Error('请求内容过大')
     raw += chunk
-    if (raw.length > 64 * 1024) throw new Error('请求内容过大')
   }
   try { return raw ? JSON.parse(raw) : {} } catch { throw new Error('请求不是有效 JSON') }
 }
@@ -50,6 +52,12 @@ async function handleApi(req, res, config) {
   if (url.pathname === '/api/xyb-workbench/settings/data-root' && req.method === 'POST') {
     const payload = await readJson(req)
     return json(res, 200, { settings: await setDataRoot(config.root, payload.dataRoot) })
+  }
+  if (url.pathname === '/api/xyb-workbench/settings/config' && req.method === 'GET') {
+    return json(res, 200, { settings: await readWorkbenchSettings(config.root) })
+  }
+  if (url.pathname === '/api/xyb-workbench/settings/config' && req.method === 'POST') {
+    return json(res, 200, { settings: await saveWorkbenchSettings(config.root, await readJson(req)) })
   }
   if (url.pathname === '/api/xyb-workbench/trials/meta' && req.method === 'GET') return json(res, 200, { metadata: trialMetadata() })
   if (url.pathname === '/api/xyb-workbench/trials/search' && req.method === 'GET') return json(res, 200, { trials: searchTrials(url.searchParams.get('q'), 30, { source: url.searchParams.get('source') || '', recruitment: url.searchParams.get('recruitment') || '' }) })
@@ -159,7 +167,7 @@ async function handleApi(req, res, config) {
       const documentId = url.searchParams.get('documentId')
       if (!documentId) return json(res, 400, { error: '缺少 documentId' })
       const document = await store.readDocument(documentId)
-      const contentTypes = { '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }
+      const contentTypes = { '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }
       const contentType = contentTypes[document.extension] || 'application/octet-stream'
       const disposition = contentType === 'application/octet-stream' ? 'attachment' : 'inline'
       res.writeHead(200, {
@@ -171,9 +179,22 @@ async function handleApi(req, res, config) {
       })
       return res.end(document.bytes)
     }
+    if (url.pathname === '/api/xyb-workbench/documents/extraction' && req.method === 'GET') {
+      const documentId = url.searchParams.get('documentId')
+      if (!documentId) return json(res, 400, { error: '缺少 documentId' })
+      return json(res, 200, { result: await store.readExtractionResult(documentId) })
+    }
     if (url.pathname === '/api/xyb-workbench/documents/parse' && req.method === 'POST') {
       const { documentId } = await readJson(req)
-      return json(res, 200, { parse: await store.parseDocument(documentId) })
+      const settings = await readWorkbenchSettings(config.root)
+      const mineruCredential = await resolveMineruToken()
+      const sourceDocument = await store.readDocument(documentId)
+      const localText = ['.txt', '.md', '.csv'].includes(sourceDocument.extension)
+      if (!localText && settings.parseMode === 'local_mineru' && !settings.mineruCloudConsent) return json(res, 428, { error: '首次使用 MinerU 前请阅读云端解析说明并确认。', code: 'mineru_consent_required' })
+      const mineru = settings.parseMode === 'local_mineru'
+        ? async (document, extension) => extractWithMineru(document.bytes, extension, { token: mineruCredential.token, model: settings.mineruModel })
+        : null
+      return json(res, 200, { parse: await store.parseDocument(documentId, { mineru }) })
     }
     if (url.pathname === '/api/xyb-workbench/candidates' && req.method === 'GET') {
       const patientId = url.searchParams.get('patientId')
@@ -198,12 +219,16 @@ async function handleApi(req, res, config) {
       return json(res, 201, { artifact: await store.exportPatientReport(patientId, formatCode) })
     }
     if (url.pathname === '/api/xyb-workbench/reports/jpeg' && req.method === 'POST') {
-      const { patientId, imageData } = await readJson(req)
+      const { patientId, imageData } = await readJson(req, 12 * 1024 * 1024)
       return json(res, 201, { artifact: await store.saveJpegReport(patientId, imageData) })
+    }
+    if (url.pathname === '/api/xyb-workbench/reports/visual' && req.method === 'POST') {
+      const { patientId, imageData, formatCode } = await readJson(req, 12 * 1024 * 1024)
+      return json(res, 201, { artifact: await store.saveVisualReport(patientId, imageData, formatCode) })
     }
     if (url.pathname === '/api/xyb-workbench/reports/artifact' && req.method === 'GET') {
       const artifact = await store.readArtifact(url.searchParams.get('artifactId'))
-      const types = { html: 'text/html; charset=utf-8', md: 'text/markdown; charset=utf-8', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', jpeg: 'image/jpeg' }
+      const types = { html: 'text/html; charset=utf-8', pdf: 'application/pdf', md: 'text/markdown; charset=utf-8', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', jpeg: 'image/jpeg' }
       res.writeHead(200, { 'content-type': types[artifact.formatCode] || 'application/octet-stream', 'content-disposition': 'inline', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'" })
       return res.end(artifact.bytes)
     }
@@ -212,7 +237,7 @@ async function handleApi(req, res, config) {
 }
 
 export function apply(ctx, config) {
-  for (const path of ['/api/xyb-workbench/health', '/api/xyb-workbench/settings/data-root', '/api/xyb-workbench/trials/meta', '/api/xyb-workbench/trials/search', '/api/xyb-workbench/trials/detail', '/api/xyb-workbench/patients', '/api/xyb-workbench/observations', '/api/xyb-workbench/observations/history', '/api/xyb-workbench/molecular-results', '/api/xyb-workbench/appointments', '/api/xyb-workbench/reminders', '/api/xyb-workbench/symptoms', '/api/xyb-workbench/care-records', '/api/xyb-workbench/mood-checkins', '/api/xyb-workbench/support-resources', '/api/xyb-workbench/treatment-cycles', '/api/xyb-workbench/nutrition', '/api/xyb-workbench/nutrition/entries', '/api/xyb-workbench/nutrition/products', '/api/xyb-workbench/nutrition/pei', '/api/xyb-workbench/trial-bookmarks', '/api/xyb-workbench/trial-subscriptions', '/api/xyb-workbench/agent-tasks', '/api/xyb-workbench/review-items', '/api/xyb-workbench/agent-tasks/session', '/api/xyb-workbench/agent-workspaces', '/api/xyb-workbench/documents', '/api/xyb-workbench/documents/content', '/api/xyb-workbench/documents/parse', '/api/xyb-workbench/candidates', '/api/xyb-workbench/candidates/confirm', '/api/xyb-workbench/candidates/reject', '/api/xyb-workbench/dashboard', '/api/xyb-workbench/reports/export', '/api/xyb-workbench/reports/jpeg', '/api/xyb-workbench/reports/artifact']) {
+  for (const path of ['/api/xyb-workbench/health', '/api/xyb-workbench/settings/data-root', '/api/xyb-workbench/settings/config', '/api/xyb-workbench/trials/meta', '/api/xyb-workbench/trials/search', '/api/xyb-workbench/trials/detail', '/api/xyb-workbench/patients', '/api/xyb-workbench/observations', '/api/xyb-workbench/observations/history', '/api/xyb-workbench/molecular-results', '/api/xyb-workbench/appointments', '/api/xyb-workbench/reminders', '/api/xyb-workbench/symptoms', '/api/xyb-workbench/care-records', '/api/xyb-workbench/mood-checkins', '/api/xyb-workbench/support-resources', '/api/xyb-workbench/treatment-cycles', '/api/xyb-workbench/nutrition', '/api/xyb-workbench/nutrition/entries', '/api/xyb-workbench/nutrition/products', '/api/xyb-workbench/nutrition/pei', '/api/xyb-workbench/trial-bookmarks', '/api/xyb-workbench/trial-subscriptions', '/api/xyb-workbench/agent-tasks', '/api/xyb-workbench/review-items', '/api/xyb-workbench/agent-tasks/session', '/api/xyb-workbench/agent-workspaces', '/api/xyb-workbench/documents', '/api/xyb-workbench/documents/content', '/api/xyb-workbench/documents/extraction', '/api/xyb-workbench/documents/parse', '/api/xyb-workbench/candidates', '/api/xyb-workbench/candidates/confirm', '/api/xyb-workbench/candidates/reject', '/api/xyb-workbench/dashboard', '/api/xyb-workbench/reports/export', '/api/xyb-workbench/reports/jpeg', '/api/xyb-workbench/reports/visual', '/api/xyb-workbench/reports/artifact']) {
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact', path,
       handler: (req, res) => {

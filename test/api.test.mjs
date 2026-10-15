@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+
+const tinyJpeg = Buffer.from('ffd8ffc0000b080001000103011100021101031101ffd9', 'hex')
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -115,6 +117,19 @@ test('serves the local setup, patient and observation flow', async (t) => {
     if (formatCode === 'md') assert.match(formatArtifact.headers.get('content-type'), /text\/markdown/u)
     else assert.match(formatArtifact.headers.get('content-type'), /wordprocessingml/u)
   }
+  const pdfExport = await call('/api/xyb-workbench/reports/visual', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ patientId, formatCode: 'pdf', imageData: `data:image/jpeg;base64,${tinyJpeg.toString('base64')}` }) })
+  assert.equal(pdfExport.response.status, 201)
+  assert.equal(pdfExport.body.artifact.formatCode, 'pdf')
+  assert.match(pdfExport.body.artifact.fileRelPath, /\.pdf$/u)
+  const pdfArtifact = await fetch(`${base}/api/xyb-workbench/reports/artifact?artifactId=${pdfExport.body.artifact.id}`)
+  assert.match(pdfArtifact.headers.get('content-type'), /application\/pdf/u)
+  assert.equal(Buffer.from(await pdfArtifact.arrayBuffer()).subarray(0, 8).toString(), '%PDF-1.4')
+  const largeJpegBytes = Buffer.alloc(55 * 1024, 0x41)
+  largeJpegBytes.set([0xff, 0xd8, 0xff], 0); largeJpegBytes.set([0xff, 0xd9], largeJpegBytes.length - 2)
+  const jpegExport = await call('/api/xyb-workbench/reports/jpeg', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ patientId, imageData: `data:image/jpeg;base64,${largeJpegBytes.toString('base64')}` }) })
+  assert.equal(jpegExport.response.status, 201, 'JPEG uploads larger than the standard JSON limit are accepted within the image limit')
+  const jpegArtifact = await fetch(`${base}/api/xyb-workbench/reports/artifact?artifactId=${jpegExport.body.artifact.id}`)
+  assert.match(jpegArtifact.headers.get('content-type'), /image\/jpeg/u)
   const upload = await fetch(`${base}/api/xyb-workbench/documents?patientId=${patientId}&title=%E5%8C%96%E9%AA%8C%E5%8D%95&kindCode=lab&reportedAt=2026-10-14`, { method: 'POST', headers: { 'x-xyb-file-name': 'lab.txt' }, body: '2026-10-14\nCA19-9: 88 U/mL' })
   const uploaded = await upload.json()
   assert.equal(upload.status, 201)
@@ -127,4 +142,9 @@ test('serves the local setup, patient and observation flow', async (t) => {
   const candidates = await call(`/api/xyb-workbench/candidates?patientId=${patientId}&documentId=${uploaded.document.id}`)
   assert.equal(candidates.body.candidates[0].payload.metricCode, 'CA19-9')
   assert.equal((await call('/api/xyb-workbench/candidates/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ candidateId: candidates.body.candidates[0].id }) })).response.status, 200)
+  const pdfUpload = await fetch(`${base}/api/xyb-workbench/documents?patientId=${patientId}&title=%E6%89%AB%E6%8F%8F%E6%8A%A5%E5%91%8A&kindCode=other`, { method: 'POST', headers: { 'x-xyb-file-name': 'sample.pdf' }, body: '%PDF-1.4 sample' })
+  const pdfDocument = (await pdfUpload.json()).document
+  const needsConsent = await call('/api/xyb-workbench/documents/parse', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId: pdfDocument.id }) })
+  assert.equal(needsConsent.response.status, 428, 'MinerU parsing of scans requires consent before a remote call')
+  assert.equal(needsConsent.body.code, 'mineru_consent_required')
 })

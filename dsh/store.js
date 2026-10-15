@@ -107,21 +107,31 @@ export class XybStore {
     if (!pathFromRoot || pathFromRoot.startsWith('..') || pathFromRoot.includes(`..${process.platform === 'win32' ? '\\' : '/'}`)) throw new Error('资料路径无效')
     return { ...document, extension: extname(document.fileRelPath).toLowerCase(), bytes: await readFile(fullPath) }
   }
-  async parseDocument(documentId) {
+  async parseDocument(documentId, { mineru = null } = {}) {
     const document = this.db.prepare('SELECT id, patient_id AS patientId, file_rel_path AS fileRelPath, sha256, reported_at AS reportedAt FROM document WHERE id = ?').get(documentId)
     if (!document) throw new Error('未找到资料')
     const runId = randomUUID(), now = new Date().toISOString()
+    const engineName = 'local-regex'
     this.db.prepare(`INSERT INTO extraction_run (id, document_id, engine, engine_version, input_hash, status, started_at)
-      VALUES (?, ?, 'local-regex', 'v1', ?, 'running', ?)`).run(runId, document.id, document.sha256, now)
+      VALUES (?, ?, ?, 'v1', ?, 'running', ?)`).run(runId, document.id, engineName, document.sha256, now)
     this.db.prepare("UPDATE document SET parse_status = 'parsing' WHERE id = ?").run(document.id)
     try {
       const extension = extname(document.fileRelPath).toLowerCase()
-      if (!['.txt', '.md', '.csv'].includes(extension)) {
+      if (!['.txt', '.md', '.csv'].includes(extension) && !mineru) {
         this.db.prepare("UPDATE extraction_run SET status = 'succeeded', finished_at = ? WHERE id = ?").run(new Date().toISOString(), runId)
         this.db.prepare("UPDATE document SET parse_status = 'partial' WHERE id = ?").run(document.id)
         return { documentId, runId, status: 'partial', candidateCount: 0, message: '当前本地规则解析仅支持 TXT、MD、CSV；文件已归档，可手动录入或等待后续解析器。' }
       }
-      const source = await readFile(join(this.root, document.fileRelPath), 'utf8')
+      let source, extractionMessage = ''
+      if (mineru && !['.txt', '.md', '.csv'].includes(extension)) {
+        const extracted = await mineru(await this.readDocument(documentId), extension)
+        source = extracted.markdown
+        extractionMessage = extracted.message || ''
+        this.db.prepare('UPDATE extraction_run SET engine = ?, engine_version = ? WHERE id = ?').run(extracted.engine, 'cli', runId)
+        const outputDirectory = join(this.root, 'output', 'extractions', document.patientId)
+        await mkdir(outputDirectory, { recursive: true, mode: 0o700 })
+        await writeFile(join(outputDirectory, `${runId}.md`), source, { mode: 0o600 })
+      } else source = await readFile(join(this.root, document.fileRelPath), 'utf8')
       const candidates = extractObservationCandidates(source, document.reportedAt)
       this.db.exec('BEGIN')
       try {
@@ -132,12 +142,24 @@ export class XybStore {
         this.db.prepare("UPDATE document SET parse_status = 'parsed' WHERE id = ?").run(document.id)
         this.db.exec('COMMIT')
       } catch (error) { this.db.exec('ROLLBACK'); throw error }
-      return { documentId, runId, status: 'parsed', candidateCount: candidates.length }
+      return { documentId, runId, status: 'parsed', candidateCount: candidates.length, ...(extractionMessage ? { message: extractionMessage } : {}) }
     } catch (error) {
       this.db.prepare("UPDATE extraction_run SET status = 'failed', finished_at = ? WHERE id = ?").run(new Date().toISOString(), runId)
       this.db.prepare("UPDATE document SET parse_status = 'failed' WHERE id = ?").run(document.id)
       throw new Error(`本地解析失败：${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+  async readExtractionResult(documentId) {
+    const run = this.db.prepare(`SELECT r.id, r.engine, d.patient_id AS patientId, d.file_rel_path AS fileRelPath FROM extraction_run r
+      JOIN document d ON d.id = r.document_id WHERE r.document_id = ? AND r.status = 'succeeded'
+      ORDER BY r.started_at DESC LIMIT 1`).get(documentId)
+    if (!run) throw new Error('此资料没有已完成的解析结果')
+    if (run.engine.startsWith('mineru-')) {
+      const resultPath = join(this.root, 'output', 'extractions', run.patientId, `${run.id}.md`)
+      return { documentId, engine: run.engine, markdown: await readFile(resultPath, 'utf8') }
+    }
+    if (extname(run.fileRelPath).toLowerCase() === '.csv') return { documentId, engine: 'local-csv', markdown: await readFile(join(this.root, run.fileRelPath), 'utf8') }
+    throw new Error('此资料没有可查看的文本解析结果')
   }
   listCandidates(patientId, documentId) {
     return this.db.prepare(`SELECT c.id, c.fact_type AS factType, c.payload_json AS payloadJson, c.source_locator AS sourceLocator,
@@ -502,20 +524,25 @@ export class XybStore {
     if (!this.db.prepare('SELECT 1 FROM patient WHERE id = ?').get(patientId)) throw new Error('未找到患者')
     if (!trialKey) throw new Error('缺少试验登记号')
     const now = new Date().toISOString(), state = ['saved', 'contacted', 'archived'].includes(input?.state) ? input.state : 'saved'
-    const existing = this.db.prepare('SELECT id FROM trial_local_bookmark WHERE patient_id = ? AND trial_key = ?').get(patientId, trialKey)
+    const trial = input?.snapshot && typeof input.snapshot === 'object' ? input.snapshot : {}
+    const snapshot = JSON.stringify(Object.fromEntries(['trialKey', 'sourceCode', 'title', 'status', 'phase', 'indication', 'drugs', 'sponsor', 'detailUrl', 'eligibilityText', 'updatedAt'].filter((key) => trial[key] != null).map((key) => [key, String(trial[key]).slice(0, key === 'eligibilityText' ? 24000 : 4000)])))
+    const existing = this.db.prepare('SELECT id, note, snapshot_json AS snapshotJson FROM trial_local_bookmark WHERE patient_id = ? AND trial_key = ?').get(patientId, trialKey)
     if (existing) {
-      this.db.prepare('UPDATE trial_local_bookmark SET state = ?, note = ?, updated_at = ? WHERE id = ?').run(state, String(input?.note || '').trim() || null, now, existing.id)
-      return { id: existing.id, patientId, trialKey, state, updatedAt: now }
+      const note = input?.note == null ? existing.note : String(input.note).trim() || null
+      const frozen = existing.snapshotJson && existing.snapshotJson !== '{}' ? existing.snapshotJson : snapshot
+      this.db.prepare('UPDATE trial_local_bookmark SET state = ?, note = ?, snapshot_json = ?, updated_at = ? WHERE id = ?').run(state, note, frozen, now, existing.id)
+      return { id: existing.id, patientId, trialKey, state, note, snapshot: JSON.parse(frozen || '{}'), updatedAt: now }
     }
     const id = randomUUID()
-    this.db.prepare(`INSERT INTO trial_local_bookmark (id, patient_id, trial_key, state, note, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, patientId, trialKey, state, String(input?.note || '').trim() || null, now, now)
-    return { id, patientId, trialKey, state, createdAt: now }
+    const note = String(input?.note || '').trim() || null
+    this.db.prepare(`INSERT INTO trial_local_bookmark (id, patient_id, trial_key, state, note, created_at, updated_at, snapshot_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, patientId, trialKey, state, note, now, now, snapshot)
+    return { id, patientId, trialKey, state, note, snapshot: JSON.parse(snapshot), createdAt: now }
   }
   listTrialBookmarks(patientId) {
     if (!this.db.prepare('SELECT 1 FROM patient WHERE id = ?').get(patientId)) throw new Error('未找到患者')
-    return this.db.prepare(`SELECT id, trial_key AS trialKey, state, note, created_at AS createdAt, updated_at AS updatedAt
-      FROM trial_local_bookmark WHERE patient_id = ? ORDER BY updated_at DESC`).all(patientId)
+    return this.db.prepare(`SELECT id, trial_key AS trialKey, state, note, snapshot_json AS snapshotJson, created_at AS createdAt, updated_at AS updatedAt
+      FROM trial_local_bookmark WHERE patient_id = ? ORDER BY updated_at DESC`).all(patientId).map(({ snapshotJson, ...item }) => ({ ...item, snapshot: JSON.parse(snapshotJson || '{}') }))
   }
   createTrialSubscription(input) {
     const patientId = String(input?.patientId || '').trim(), queryText = String(input?.queryText || '').trim()
@@ -558,8 +585,12 @@ export class XybStore {
   listReviewItems(patientId) {
     if (!this.db.prepare('SELECT 1 FROM patient WHERE id = ?').get(patientId)) throw new Error('未找到患者')
     const tasks = this.db.prepare(`SELECT id, task_type AS taskType, page_code AS pageCode, agent_role_code AS agentRoleCode,
-      status, prompt_rendered AS promptRendered, session_ref AS sessionRef, created_at AS createdAt
-      FROM agent_task WHERE patient_id = ? ORDER BY created_at DESC LIMIT 100`).all(patientId)
+      status, prompt_rendered AS promptRendered, input_snapshot_json AS inputSnapshotJson, session_ref AS sessionRef, created_at AS createdAt
+      FROM agent_task WHERE patient_id = ? ORDER BY created_at DESC LIMIT 100`).all(patientId).map(({ inputSnapshotJson, ...task }) => {
+        const snapshot = JSON.parse(inputSnapshotJson || '{}')
+        const trial = snapshot.trial && typeof snapshot.trial === 'object' ? snapshot.trial : null
+        return { ...task, relatedTrial: trial ? { trialKey: trial.trialKey || trial.no || '', title: trial.title || '', sourceCode: trial.sourceCode || '' } : null }
+      })
     const artifacts = this.db.prepare(`SELECT a.id, a.format_code AS formatCode, a.file_rel_path AS fileRelPath,
       a.created_at AS createdAt, s.scope_code AS scopeCode FROM export_artifact a
       JOIN report_snapshot s ON s.id = a.snapshot_id WHERE s.patient_id = ? ORDER BY a.created_at DESC LIMIT 100`).all(patientId)
@@ -574,14 +605,17 @@ export class XybStore {
     if (!pathFromRoot || pathFromRoot.startsWith('..') || pathFromRoot.startsWith('/')) throw new Error('导出文件路径无效')
     return { formatCode: artifact.formatCode, bytes: await readFile(absolute) }
   }
-  async saveJpegReport(patientId, dataUrl) {
+  async saveVisualReport(patientId, dataUrl, formatCode = 'jpeg') {
     const dashboard = this.dashboard(patientId)
+    if (!['jpeg', 'pdf'].includes(formatCode)) throw new Error('图片报告只支持 JPEG 或 PDF')
     const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+=*)$/u.exec(String(dataUrl || ''))
-    if (!match) throw new Error('JPEG 报告数据格式无效')
-    const bytes = Buffer.from(match[1], 'base64')
-    if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw new Error('JPEG 报告大小需在 8 MiB 以内')
+    if (!match) throw new Error(`${formatCode.toUpperCase()} 报告图像数据格式无效`)
+    const jpegBytes = Buffer.from(match[1], 'base64')
+    if (!jpegBytes.length || jpegBytes.length > 8 * 1024 * 1024) throw new Error('报告图像大小需在 8 MiB 以内')
+    if (jpegBytes.length < 4 || jpegBytes[0] !== 0xff || jpegBytes[1] !== 0xd8 || jpegBytes.at(-2) !== 0xff || jpegBytes.at(-1) !== 0xd9) throw new Error('报告图像内容不完整')
+    const bytes = formatCode === 'pdf' ? jpegToPdf(jpegBytes) : jpegBytes
     const snapshotId = randomUUID(), artifactId = randomUUID(), now = new Date().toISOString()
-    const relativePath = join('output', 'reports', patientId, `${snapshotId}.jpeg`), absolute = join(this.root, relativePath)
+    const relativePath = join('output', 'reports', patientId, `${snapshotId}.${formatCode}`), absolute = join(this.root, relativePath)
     await mkdir(dirname(absolute), { recursive: true }); await writeFile(absolute, bytes, { flag: 'wx', mode: 0o600 })
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     try {
@@ -589,11 +623,12 @@ export class XybStore {
       this.db.prepare(`INSERT INTO report_snapshot (id, patient_id, scope_code, facts_json, document_refs_json, template_version, created_at, created_by)
         VALUES (?, ?, 'patient_summary', ?, '[]', 'v1', ?, 'patient')`).run(snapshotId, patientId, JSON.stringify(dashboard), now)
       this.db.prepare(`INSERT INTO export_artifact (id, snapshot_id, format_code, file_rel_path, sha256, template_version, created_at)
-        VALUES (?, ?, 'jpeg', ?, ?, 'v1', ?)`).run(artifactId, snapshotId, relativePath, sha256, now)
+        VALUES (?, ?, ?, ?, ?, 'v1', ?)`).run(artifactId, snapshotId, formatCode, relativePath, sha256, now)
       this.db.exec('COMMIT')
     } catch (error) { this.db.exec('ROLLBACK'); await unlink(absolute).catch(() => {}); throw error }
-    return { id: artifactId, snapshotId, formatCode: 'jpeg', fileRelPath: relativePath, createdAt: now }
+    return { id: artifactId, snapshotId, formatCode, fileRelPath: relativePath, createdAt: now }
   }
+  async saveJpegReport(patientId, dataUrl) { return this.saveVisualReport(patientId, dataUrl, 'jpeg') }
   latestAgentTaskSession(patientId) {
     return this.db.prepare(`SELECT session_ref AS sessionRef FROM agent_task
       WHERE patient_id = ? AND session_ref IS NOT NULL ORDER BY created_at DESC LIMIT 1`).get(patientId)?.sessionRef || null
@@ -611,7 +646,7 @@ export class XybStore {
       FROM ranked current LEFT JOIN ranked previous ON previous.metricCode = current.metricCode AND previous.number = 2
       WHERE current.number = 1 ORDER BY current.occurredAt DESC`).all(patientId)
     const upcoming = this.db.prepare(`SELECT id, kind_code AS kindCode, scheduled_at AS scheduledAt, organization, note, status
-      FROM appointment WHERE patient_id = ? AND status = 'scheduled' ORDER BY scheduled_at LIMIT 8`).all(patientId)
+      FROM appointment WHERE patient_id = ? AND status = 'scheduled' ORDER BY scheduled_at LIMIT 100`).all(patientId)
     const reminders = this.db.prepare(`SELECT r.id, r.rule_code AS ruleCode, r.due_at AS dueAt, r.status, r.payload_json AS payloadJson,
         a.id AS appointmentId, a.kind_code AS kindCode, a.scheduled_at AS scheduledAt, a.note
       FROM reminder r LEFT JOIN appointment a ON a.id = r.appointment_id
@@ -674,6 +709,42 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
 }
 
+export function jpegToPdf(jpeg) {
+  let width, height
+  for (let offset = 2; offset + 9 < jpeg.length;) {
+    if (jpeg[offset] !== 0xff) { offset++; continue }
+    const marker = jpeg[offset + 1]
+    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) { offset += 2; continue }
+    const length = jpeg.readUInt16BE(offset + 2)
+    if (length < 2 || offset + 2 + length > jpeg.length) break
+    if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+      height = jpeg.readUInt16BE(offset + 5); width = jpeg.readUInt16BE(offset + 7); break
+    }
+    offset += 2 + length
+  }
+  if (!width || !height) throw new Error('无法读取报告图像尺寸，未生成 PDF')
+  const pageWidth = 595.28, pageHeight = Math.max(100, pageWidth * height / width)
+  const content = Buffer.from(`q\n${pageWidth.toFixed(2)} 0 0 ${pageHeight.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`)
+  const objects = [
+    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
+    Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+    Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`),
+    Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`), jpeg, Buffer.from('\nendstream')]),
+    Buffer.concat([Buffer.from(`<< /Length ${content.length} >>\nstream\n`), content, Buffer.from('endstream')]),
+  ]
+  const parts = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')], offsets = [0]
+  let position = parts[0].length
+  objects.forEach((object, index) => {
+    offsets.push(position)
+    const wrapped = Buffer.concat([Buffer.from(`${index + 1} 0 obj\n`), object, Buffer.from('\nendobj\n')])
+    parts.push(wrapped); position += wrapped.length
+  })
+  const xrefOffset = position
+  const xref = [`xref\n0 ${objects.length + 1}\n`, '0000000000 65535 f \n', ...offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)].join('')
+  parts.push(Buffer.from(`${xref}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`))
+  return Buffer.concat(parts)
+}
+
 function isScheduledDate(value) {
   return Number.isFinite(Date.parse(value))
 }
@@ -700,6 +771,24 @@ const metricAliases = [
 function extractObservationCandidates(source, reportedAt) {
   const found = []
   const date = source.match(/\b(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b/u)?.[1]?.replaceAll('/', '-').replaceAll('.', '-') || reportedAt
+  const csvLines = source.split(/\r?\n/u).filter((line) => line.trim())
+  if (csvLines.length > 1 && csvLines[0].includes(',')) {
+    const cells = (line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/u).map((cell) => cell.trim().replace(/^"|"$/gu, '').replaceAll('""', '"'))
+    const headers = cells(csvLines[0]).map((item) => item.toLowerCase())
+    const pick = (patterns) => headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)))
+    const dateColumn = pick([/date|日期|时间/u]), metricColumn = pick([/metric|指标|项目|名称/u]), valueColumn = pick([/value|result|数值|结果/u]), unitColumn = pick([/unit|单位/u])
+    if (metricColumn >= 0 && valueColumn >= 0) {
+      csvLines.slice(1).forEach((line, index) => {
+        const row = cells(line), metricText = row[metricColumn] || '', alias = metricAliases.find(([pattern]) => pattern.test(metricText))
+        const raw = row[valueColumn] || '', valueMatch = raw.match(/(>=|<=|>|<)?\s*(\d+(?:\.\d+)?)/u)
+        const rowDate = (dateColumn >= 0 ? row[dateColumn] : '')?.match(/20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/u)?.[0]?.replaceAll('/', '-').replaceAll('.', '-') || date
+        if (!alias || !valueMatch || !rowDate) return
+        const sourceLocator = `row:${index + 2}`
+        found.push({ sourceLocator, confidence: 0.92, payload: { metricCode: alias[1], valueNum: Number(valueMatch[2]), valueRaw: `${valueMatch[1] || ''}${valueMatch[2]}`, comparator: valueMatch[1] || '=', unitRaw: unitColumn >= 0 ? row[unitColumn] || null : null, occurredAt: rowDate, sourceLocator, sourceText: line.trim() } })
+      })
+      if (found.length) return found
+    }
+  }
   if (!date) return found
   for (const [index, line] of source.split(/\r?\n/u).entries()) {
     const alias = metricAliases.map(([pattern, metricCode]) => ({ match: pattern.exec(line), metricCode })).find((entry) => entry.match)

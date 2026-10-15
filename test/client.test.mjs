@@ -79,13 +79,22 @@ test('renders each business tab structure for a local patient', async () => {
   ]
   for (const [tab, expected] of checks) {
     overrides[19] = tab
-    const tree = renderWorkbenchPanel(runtime, tab, resetHooks)
+    let tree = renderWorkbenchPanel(runtime, tab, resetHooks)
     const text = collectText(tree).join(' ')
     assert.match(text, expected, `tab ${tab} should render its page structure`)
     if (tab === 'dashboard') {
       assert.match(text, /PDF（默认）/u)
       assert.match(text, /JPEG/u)
       assert.match(text, /DOCX/u)
+      const days = collectNodes(tree, (node) => typeof node.props.className === 'string' && node.props.className.includes('xyb-calendar-day'))
+      assert.equal(days.length, 14, 'dashboard shows exactly the next fourteen local calendar days')
+      assert.match(text, /添加事件/u, 'calendar lets the patient add an appointment from the dashboard')
+      assert.equal((text.match(/资料整理进度/gu) || []).length, 1, 'dashboard completion ring is separated from the welcome hero and shown once')
+      const addEvent = collectNodes(tree, (node) => node.type === 'button' && node.children.flat(Infinity).includes('＋ 添加事件'))[0]
+      assert.ok(addEvent?.props.onClick)
+      addEvent.props.onClick()
+      tree = renderWorkbenchPanel(runtime, tab, resetHooks)
+      assert.match(collectText(tree).join(' '), /保存到本机日历/u, 'adding an event opens an inline form with local persistence')
     }
   }
   overrides[19] = 'records'
@@ -98,8 +107,18 @@ test('renders each business tab structure for a local patient', async () => {
   for (const section of ['毒性管理', '并发症', '带管管理', '血管通路']) assert.match(careText, new RegExp(section, 'u'))
   overrides[19] = 'trials'
   overrides[28] = '入组档案'
+  overrides[14] = [
+    { id: 'mol-kras', assayType: 'NGS', markerCode: 'KRAS', geneCode: 'KRAS', alterationCode: '错义变异', variantHgvs: 'p.G12D', resultType: 'positive', resultRaw: 'G12D', vafPct: 24.9, testMethod: 'NGS', occurredAt: '2026-08-02', sourceLocator: '模拟报告 · 第 2 页' },
+    { id: 'mol-egfr', assayType: 'IHC', markerCode: 'EGFR', resultType: 'positive', resultRaw: '阳性 · 40%', intensity: '2+', positivePct: 40, testMethod: 'IHC', occurredAt: '2026-07-20', sourceLocator: '模拟病理报告 · 第 3 页' },
+    { id: 'mol-ntrk', assayType: 'NGS', markerCode: 'NTRK 融合', geneCode: 'NTRK', resultType: 'not_tested', resultRaw: '未检测', alterationCode: '报告未包含融合分析', testMethod: 'NGS', occurredAt: '2026-08-02', sourceLocator: '模拟报告 · 第 2 页' },
+  ]
   tree = renderWorkbenchPanel(runtime, 'trials', resetHooks)
-  assert.match(collectText(tree).join(' '), /基因与分子检测/u, 'clinical matching opens the structured patient profile by default')
+  const clinicalProfileText = collectText(tree).join(' ')
+  assert.match(clinicalProfileText, /基因检测（分子特征）/u, 'clinical matching opens the structured patient profile by default')
+  assert.match(clinicalProfileText, /靶点 \/ 检测项/u)
+  assert.match(clinicalProfileText, /VAF 24.9%/u)
+  assert.match(clinicalProfileText, /EGFR/u)
+  assert.match(clinicalProfileText, /展开未检出 \/ 未检测（0 项未检出 · 1 项未检测）/u, 'negative and untested details are retained in a separate disclosure like v2')
   overrides[19] = 'care'
   overrides[21] = { comorbidities: [], toxicities: [], medications: [], catheters: [{ id: 'c1', typeCode: 'Port', site: '胸前', status: 'in_place', maintenance: [] }] }
   overrides[23] = '管路照护'
@@ -146,6 +165,34 @@ test('renders each business tab structure for a local patient', async () => {
   overrides[9] = [{ trialKey: 'CTR-DEMO', title: '本机示例试验', status: '招募中', phase: 'II期', sourceCode: 'ChiCTR' }]
   overrides[34] = '试验检索'
   tree = renderWorkbenchPanel(runtime, 'trials', resetHooks)
-  assert.match(collectText(tree).join(' '), /查看试验详情/u)
-  assert.match(collectText(tree).join(' '), /询问 Agent/u)
+  assert.match(collectText(tree).join(' '), /打开详情/u)
+  assert.match(collectText(tree).join(' '), /查看条件对照/u)
+  assert.match(collectText(tree).join(' '), /我的关注/u)
+  overrides[19] = 'nutrition'
+  overrides[8] = {
+    latest: { occurredAt: '2026-10-12', weightKg: 51.4, bmi: 17.8, intakeKcal: 1200, proteinG: 47 },
+    entries: [
+      { occurredAt: '2026-10-12', weightKg: 51.4, intakeKcal: 1200, proteinG: 47, note: '[UI DEMO] prototype-v3 模拟营养记录；不是患者真实测量值。' },
+      { occurredAt: '2026-10-01', weightKg: 51.8, intakeKcal: 1220, proteinG: 49, note: '[UI DEMO] prototype-v3 模拟营养记录；不是患者真实测量值。' },
+      { occurredAt: '2026-09-18', weightKg: 52.1, intakeKcal: 1250, proteinG: 52 },
+      { occurredAt: '2026-09-05', weightKg: 52.4, intakeKcal: 1290, proteinG: 54 },
+      { occurredAt: '2026-08-20', weightKg: 52.7, intakeKcal: 1320, proteinG: 56 },
+    ], products: [], peiRecords: [],
+  }
+  tree = renderWorkbenchPanel(runtime, 'nutrition', resetHooks)
+  const nutritionText = collectText(tree).join(' ')
+  assert.match(nutritionText, /界面演示数据/u)
+  assert.match(nutritionText, /51\.4 kg/u)
+  assert.match(nutritionText, /营养指标趋势/u)
+  let nutritionCards = collectNodes(tree, (node) => node.props?.className === 'xyb-metric-card')
+  assert.equal(nutritionCards.length, 3, 'nutrition shows the three flip cards for weight, BMI, and energy')
+  nutritionCards[0].props.onClick()
+  tree = renderWorkbenchPanel(runtime, 'nutrition', resetHooks)
+  nutritionCards = collectNodes(tree, (node) => node.props?.className === 'xyb-metric-card')
+  assert.equal(nutritionCards[0].props['aria-pressed'], true, 'nutrition flip remains active after rerender')
+  assert.match(collectText(nutritionCards[0]).join(' '), /最近 5 次/u, 'nutrition flip back shows recent measurements and sparkline label')
+  nutritionCards[1].props.onClick()
+  tree = renderWorkbenchPanel(runtime, 'nutrition', resetHooks)
+  nutritionCards = collectNodes(tree, (node) => node.props?.className === 'xyb-metric-card')
+  assert.deepEqual(nutritionCards.map((node) => node.props['aria-pressed']), [true, true, false], 'each nutrition card retains its own flipped state')
 })
