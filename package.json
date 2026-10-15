@@ -1,0 +1,55 @@
+{
+  "name": "@xyb-openharness-dsh-plugins/xyb-workbench",
+  "version": "0.1.15",
+  "description": "小胰宝：本机优先的胰腺癌病程整理与照护工作台",
+  "private": true,
+  "type": "module",
+  "main": "./dsh/index.js",
+  "exports": {
+    ".": "./dsh/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "assets",
+    "dsh",
+    "lib",
+    "schema",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check dsh/index.js && node --check dsh/store.js && node --check lib/client.js && node --test test/*.test.mjs && node schema/contracts/validate.mjs",
+    "pack:check": "npm pack --dry-run",
+    "trials:build": "node scripts/build-trials-db.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-desktop-workbenches"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1 <5",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.0 <0.3.0-0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.0 <0.3.0-0",
+    "@deepseek-ai/schemastery": ">=3.18.1 <4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "docx": "^9.11.0"
+  }
+}

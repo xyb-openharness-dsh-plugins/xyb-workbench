@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xyb.local/schema/contracts/report_snapshot.schema.json",
+  "title": "report_snapshot.facts_json",
+  "description": "冻结报告快照纳入的事实清单：scope、事实明细、文档引用、模板版本。保证汇总与明细一致、导出用同一冻结快照。",
+  "type": "object",
+  "required": ["schema_version", "scope_code", "template_version", "facts", "document_refs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "freeze/v1" },
+    "scope_code": { "type": "string", "minLength": 1 },
+    "template_version": { "type": "string", "minLength": 1 },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fact_id", "fact_type", "value_state"],
+        "additionalProperties": false,
+        "properties": {
+          "fact_id": { "type": "string" },
+          "fact_type": { "type": "string" },
+          "value_state": {
+            "type": "string",
+            "enum": ["measured", "not_tested", "negative", "unknown", "positive", "percentage", "score", "cps", "protein_expression"]
+          },
+          "value_raw": { "type": ["string", "null"] },
+          "value_num": { "type": ["number", "null"] },
+          "comparator": { "type": "string", "enum": ["=", ">", "<", ">=", "<="] },
+          "occurred_at": { "type": ["string", "null"] },
+          "source_kind": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "document_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["document_id"],
+        "additionalProperties": false,
+        "properties": {
+          "document_id": { "type": "string" },
+          "page_no": { "type": ["integer", "null"] },
+          "source_locator": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}
