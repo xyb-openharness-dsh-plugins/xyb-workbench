@@ -111,7 +111,7 @@ test('creates a patient and exposes an empty dashboard', async () => {
   assert.equal(supportResources.length, 4)
   assert.ok(supportResources.some((item) => item.title.includes('荣基金')))
   assert.ok(supportResources.some((item) => item.regionCode === '上海'))
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM schema_migration').get().count, 9)
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM schema_migration').get().count, 10)
   const frozenAssessmentFks = store.db.prepare('PRAGMA foreign_key_list(match_assessment_v2)').all()
   assert.equal(frozenAssessmentFks.some((foreignKey) => foreignKey.table === 'trial_record'), false)
   assert.ok(store.db.prepare('PRAGMA table_info(trial_local_bookmark)').all().some((column) => column.name === 'match_assessment_id'))

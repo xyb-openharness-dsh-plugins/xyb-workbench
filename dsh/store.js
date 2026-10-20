@@ -20,6 +20,9 @@ export async function openStore(root) {
   const db = new DatabaseSync(dbPath)
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA journal_mode = WAL')
+  // Background parse jobs open their own connection while a request may still
+  // hold one; wait instead of failing with SQLITE_BUSY.
+  db.exec('PRAGMA busy_timeout = 5000')
   await applyMigrations(db, schemaDirectory)
   return new XybStore(db, safeRoot)
 }
@@ -107,12 +110,13 @@ export class XybStore {
     if (!pathFromRoot || pathFromRoot.startsWith('..') || pathFromRoot.includes(`..${process.platform === 'win32' ? '\\' : '/'}`)) throw new Error('资料路径无效')
     return { ...document, extension: extname(document.fileRelPath).toLowerCase(), bytes: await readFile(fullPath) }
   }
-  async parseDocument(documentId, { mineru = null } = {}) {
+  async parseDocument(documentId, { mineru = null, runId: queuedRunId = null } = {}) {
     const document = this.db.prepare('SELECT id, patient_id AS patientId, file_rel_path AS fileRelPath, sha256, reported_at AS reportedAt FROM document WHERE id = ?').get(documentId)
     if (!document) throw new Error('未找到资料')
-    const runId = randomUUID(), now = new Date().toISOString()
+    const runId = queuedRunId || randomUUID(), now = new Date().toISOString()
     const engineName = 'local-regex'
-    this.db.prepare(`INSERT INTO extraction_run (id, document_id, engine, engine_version, input_hash, status, started_at)
+    if (queuedRunId) this.db.prepare("UPDATE extraction_run SET engine = ?, status = 'running', started_at = ?, finished_at = NULL, error_message = NULL WHERE id = ?").run(engineName, now, runId)
+    else this.db.prepare(`INSERT INTO extraction_run (id, document_id, engine, engine_version, input_hash, status, started_at)
       VALUES (?, ?, ?, 'v1', ?, 'running', ?)`).run(runId, document.id, engineName, document.sha256, now)
     this.db.prepare("UPDATE document SET parse_status = 'parsing' WHERE id = ?").run(document.id)
     try {
@@ -120,13 +124,14 @@ export class XybStore {
       if (!['.txt', '.md', '.csv'].includes(extension) && !mineru) {
         this.db.prepare("UPDATE extraction_run SET status = 'succeeded', finished_at = ? WHERE id = ?").run(new Date().toISOString(), runId)
         this.db.prepare("UPDATE document SET parse_status = 'partial' WHERE id = ?").run(document.id)
-        return { documentId, runId, status: 'partial', candidateCount: 0, message: '当前本地规则解析仅支持 TXT、MD、CSV；文件已归档，可手动录入或等待后续解析器。' }
+        return { documentId, runId, status: 'partial', engine: engineName, candidateCount: 0, message: '当前本地规则解析仅支持 TXT、MD、CSV；文件已归档，可手动录入或等待后续解析器。' }
       }
-      let source, extractionMessage = ''
+      let source, extractionMessage = '', usedEngine = engineName
       if (mineru && !['.txt', '.md', '.csv'].includes(extension)) {
         const extracted = await mineru(await this.readDocument(documentId), extension)
         source = extracted.markdown
         extractionMessage = extracted.message || ''
+        usedEngine = extracted.engine
         this.db.prepare('UPDATE extraction_run SET engine = ?, engine_version = ? WHERE id = ?').run(extracted.engine, 'cli', runId)
         const outputDirectory = join(this.root, 'output', 'extractions', document.patientId)
         await mkdir(outputDirectory, { recursive: true, mode: 0o700 })
@@ -142,12 +147,54 @@ export class XybStore {
         this.db.prepare("UPDATE document SET parse_status = 'parsed' WHERE id = ?").run(document.id)
         this.db.exec('COMMIT')
       } catch (error) { this.db.exec('ROLLBACK'); throw error }
-      return { documentId, runId, status: 'parsed', candidateCount: candidates.length, ...(extractionMessage ? { message: extractionMessage } : {}) }
+      return { documentId, runId, status: 'parsed', engine: usedEngine, candidateCount: candidates.length, ...(extractionMessage ? { message: extractionMessage } : {}) }
     } catch (error) {
-      this.db.prepare("UPDATE extraction_run SET status = 'failed', finished_at = ? WHERE id = ?").run(new Date().toISOString(), runId)
+      const detail = error instanceof Error ? error.message : String(error)
+      this.db.prepare("UPDATE extraction_run SET status = 'failed', finished_at = ?, error_message = ? WHERE id = ?").run(new Date().toISOString(), detail.slice(0, 1000), runId)
       this.db.prepare("UPDATE document SET parse_status = 'failed' WHERE id = ?").run(document.id)
-      throw new Error(`本地解析失败：${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(`本地解析失败：${detail}`)
     }
+  }
+  queueParse(documentId, { mineru = null } = {}) {
+    const document = this.db.prepare('SELECT id, patient_id AS patientId, file_rel_path AS fileRelPath, sha256 FROM document WHERE id = ?').get(documentId)
+    if (!document) throw new Error('未找到资料')
+    for (const active of this.listParseJobs(document.patientId)) if (active.documentId === document.id) return active
+    const runId = randomUUID(), now = new Date().toISOString()
+    this.db.prepare(`INSERT INTO extraction_run (id, document_id, engine, engine_version, input_hash, status, started_at)
+      VALUES (?, ?, ?, 'v1', ?, 'queued', ?)`).run(runId, document.id, 'local-regex', document.sha256, now)
+    this.db.prepare("UPDATE document SET parse_status = 'parsing' WHERE id = ?").run(document.id)
+    const job = { documentId, runId }
+    // The request that enqueues the job closes its own connection when it
+    // returns, so the worker runs on a connection of its own.
+    ;(async () => {
+      let worker = null
+      try {
+        worker = await openStore(this.root)
+        await worker.parseDocument(documentId, { mineru, runId })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        try { const recovery = await openStore(this.root); recovery.markParseFailed(runId, detail); recovery.close() } catch { /* nothing else we can record */ }
+      } finally { worker?.close() }
+    })()
+    return job
+  }
+  markParseFailed(runId, detail) {
+    this.db.prepare("UPDATE extraction_run SET status = 'failed', finished_at = ?, error_message = ? WHERE id = ?").run(new Date().toISOString(), String(detail).slice(0, 1000), runId)
+    const document = this.db.prepare('SELECT document_id AS documentId FROM extraction_run WHERE id = ?').get(runId)
+    if (document) this.db.prepare("UPDATE document SET parse_status = 'failed' WHERE id = ?").run(document.documentId)
+  }
+  listParseJobs(patientId) {
+    return this.db.prepare(`SELECT r.id AS runId, r.document_id AS documentId, d.title, r.status, r.engine,
+      COALESCE(NULLIF(r.error_message, ''), NULL) AS errorMessage, r.started_at AS startedAt, r.finished_at AS finishedAt,
+      (SELECT COUNT(*) FROM extraction_candidate c WHERE c.run_id = r.id) AS candidateCount
+      FROM extraction_run r JOIN document d ON d.id = r.document_id
+      WHERE d.patient_id = ? AND r.status IN ('queued', 'running') ORDER BY r.started_at DESC`).all(patientId)
+  }
+  readParseJob(runId) {
+    return this.db.prepare(`SELECT r.id AS runId, r.document_id AS documentId, d.title, d.patient_id AS patientId, r.status, r.engine,
+      COALESCE(NULLIF(r.error_message, ''), NULL) AS errorMessage, r.started_at AS startedAt, r.finished_at AS finishedAt,
+      (SELECT COUNT(*) FROM extraction_candidate c WHERE c.run_id = r.id) AS candidateCount
+      FROM extraction_run r JOIN document d ON d.id = r.document_id WHERE r.id = ?`).get(runId) || null
   }
   async readExtractionResult(documentId) {
     const run = this.db.prepare(`SELECT r.id, r.engine, d.patient_id AS patientId, d.file_rel_path AS fileRelPath FROM extraction_run r

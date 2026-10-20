@@ -137,8 +137,16 @@ test('serves the local setup, patient and observation flow', async (t) => {
   assert.equal(preview.status, 200)
   assert.equal(preview.headers.get('content-type'), 'text/plain; charset=utf-8')
   assert.match(await preview.text(), /CA19-9: 88 U\/mL/u)
-  const parsed = await call('/api/xyb-workbench/documents/parse', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId: uploaded.document.id }) })
-  assert.equal(parsed.body.parse.candidateCount, 1)
+  const started = await call('/api/xyb-workbench/documents/parse', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId: uploaded.document.id }) })
+  assert.equal(started.response.status, 202, 'parse requests enqueue a background job instead of blocking the page')
+  assert.ok(started.body.job.runId)
+  let parsed = null
+  for (let attempt = 0; attempt < 100 && !parsed; attempt += 1) {
+    const job = await call(`/api/xyb-workbench/documents/parse/job?runId=${encodeURIComponent(started.body.job.runId)}`)
+    if (job.body.job.status === 'succeeded') parsed = job.body.job
+    else { assert.ok(['queued', 'running'].includes(job.body.job.status)); await new Promise((resolveStep) => setTimeout(resolveStep, 20)) }
+  }
+  assert.equal(parsed?.candidateCount, 1)
   const candidates = await call(`/api/xyb-workbench/candidates?patientId=${patientId}&documentId=${uploaded.document.id}`)
   assert.equal(candidates.body.candidates[0].payload.metricCode, 'CA19-9')
   assert.equal((await call('/api/xyb-workbench/candidates/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ candidateId: candidates.body.candidates[0].id }) })).response.status, 200)

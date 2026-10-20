@@ -1,6 +1,6 @@
 {
   "name": "@xyb-openharness-dsh-plugins/xyb-workbench",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "小胰宝：本机优先的胰腺癌病程整理与照护工作台",
   "private": true,
   "type": "module",

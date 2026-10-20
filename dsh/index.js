@@ -194,7 +194,19 @@ async function handleApi(req, res, config) {
       const mineru = settings.parseMode === 'local_mineru'
         ? async (document, extension) => extractWithMineru(document.bytes, extension, { token: mineruCredential.token, model: settings.mineruModel })
         : null
-      return json(res, 200, { parse: await store.parseDocument(documentId, { mineru }) })
+      return json(res, 202, { job: store.queueParse(documentId, { mineru }) })
+    }
+    if (url.pathname === '/api/xyb-workbench/documents/parse/jobs' && req.method === 'GET') {
+      const patientId = url.searchParams.get('patientId')
+      if (!patientId) return json(res, 400, { error: '缺少 patientId' })
+      return json(res, 200, { jobs: store.listParseJobs(patientId) })
+    }
+    if (url.pathname === '/api/xyb-workbench/documents/parse/job' && req.method === 'GET') {
+      const runId = url.searchParams.get('runId')
+      if (!runId) return json(res, 400, { error: '缺少 runId' })
+      const job = store.readParseJob(runId)
+      if (!job) return json(res, 404, { error: '未找到解析任务' })
+      return json(res, 200, { job })
     }
     if (url.pathname === '/api/xyb-workbench/candidates' && req.method === 'GET') {
       const patientId = url.searchParams.get('patientId')
@@ -237,7 +249,7 @@ async function handleApi(req, res, config) {
 }
 
 export function apply(ctx, config) {
-  for (const path of ['/api/xyb-workbench/health', '/api/xyb-workbench/settings/data-root', '/api/xyb-workbench/settings/config', '/api/xyb-workbench/trials/meta', '/api/xyb-workbench/trials/search', '/api/xyb-workbench/trials/detail', '/api/xyb-workbench/patients', '/api/xyb-workbench/observations', '/api/xyb-workbench/observations/history', '/api/xyb-workbench/molecular-results', '/api/xyb-workbench/appointments', '/api/xyb-workbench/reminders', '/api/xyb-workbench/symptoms', '/api/xyb-workbench/care-records', '/api/xyb-workbench/mood-checkins', '/api/xyb-workbench/support-resources', '/api/xyb-workbench/treatment-cycles', '/api/xyb-workbench/nutrition', '/api/xyb-workbench/nutrition/entries', '/api/xyb-workbench/nutrition/products', '/api/xyb-workbench/nutrition/pei', '/api/xyb-workbench/trial-bookmarks', '/api/xyb-workbench/trial-subscriptions', '/api/xyb-workbench/agent-tasks', '/api/xyb-workbench/review-items', '/api/xyb-workbench/agent-tasks/session', '/api/xyb-workbench/agent-workspaces', '/api/xyb-workbench/documents', '/api/xyb-workbench/documents/content', '/api/xyb-workbench/documents/extraction', '/api/xyb-workbench/documents/parse', '/api/xyb-workbench/candidates', '/api/xyb-workbench/candidates/confirm', '/api/xyb-workbench/candidates/reject', '/api/xyb-workbench/dashboard', '/api/xyb-workbench/reports/export', '/api/xyb-workbench/reports/jpeg', '/api/xyb-workbench/reports/visual', '/api/xyb-workbench/reports/artifact']) {
+  for (const path of ['/api/xyb-workbench/health', '/api/xyb-workbench/settings/data-root', '/api/xyb-workbench/settings/config', '/api/xyb-workbench/trials/meta', '/api/xyb-workbench/trials/search', '/api/xyb-workbench/trials/detail', '/api/xyb-workbench/patients', '/api/xyb-workbench/observations', '/api/xyb-workbench/observations/history', '/api/xyb-workbench/molecular-results', '/api/xyb-workbench/appointments', '/api/xyb-workbench/reminders', '/api/xyb-workbench/symptoms', '/api/xyb-workbench/care-records', '/api/xyb-workbench/mood-checkins', '/api/xyb-workbench/support-resources', '/api/xyb-workbench/treatment-cycles', '/api/xyb-workbench/nutrition', '/api/xyb-workbench/nutrition/entries', '/api/xyb-workbench/nutrition/products', '/api/xyb-workbench/nutrition/pei', '/api/xyb-workbench/trial-bookmarks', '/api/xyb-workbench/trial-subscriptions', '/api/xyb-workbench/agent-tasks', '/api/xyb-workbench/review-items', '/api/xyb-workbench/agent-tasks/session', '/api/xyb-workbench/agent-workspaces', '/api/xyb-workbench/documents', '/api/xyb-workbench/documents/content', '/api/xyb-workbench/documents/extraction', '/api/xyb-workbench/documents/parse', '/api/xyb-workbench/documents/parse/jobs', '/api/xyb-workbench/documents/parse/job', '/api/xyb-workbench/candidates', '/api/xyb-workbench/candidates/confirm', '/api/xyb-workbench/candidates/reject', '/api/xyb-workbench/dashboard', '/api/xyb-workbench/reports/export', '/api/xyb-workbench/reports/jpeg', '/api/xyb-workbench/reports/visual', '/api/xyb-workbench/reports/artifact']) {
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact', path,
       handler: (req, res) => {

@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xyb.local/schema/contracts/match_assessment.schema.json",
+  "title": "match_assessment.inputs_frozen_json",
+  "description": "冻结匹配评估输入：档案版本与取值、规则集版本与原文、数据代次、判定器版本、逐条结果与缺失项。依据 SCHEMA-REVIEW §3。",
+  "type": "object",
+  "required": ["schema_version", "patient_id", "trial_key", "profile", "frozen_rule_set", "generation_ids", "evaluator_version", "evaluations"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "freeze/v1" },
+    "patient_id": { "type": "string", "minLength": 1 },
+    "trial_key": { "type": "string", "minLength": 1 },
+    "profile": {
+      "type": "object",
+      "required": ["profile_revision", "facts"],
+      "additionalProperties": false,
+      "properties": {
+        "profile_revision": { "type": "string", "minLength": 1 },
+        "facts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fact_id", "fact_type", "value_state"],
+            "additionalProperties": false,
+            "properties": {
+              "fact_id": { "type": "string" },
+              "fact_type": { "type": "string" },
+              "value_state": {
+                "type": "string",
+                "enum": ["measured", "not_tested", "negative", "unknown", "positive", "percentage", "score", "cps", "protein_expression"]
+              },
+              "value_raw": { "type": ["string", "null"] },
+              "value_num": { "type": ["number", "null"] },
+              "comparator": { "type": "string", "enum": ["=", ">", "<", ">=", "<="] },
+              "occurred_at": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "frozen_rule_set": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "rule_version", "source_text", "rule_type"],
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": { "type": "string" },
+          "rule_version": { "type": "string", "minLength": 1 },
+          "source_text": { "type": "string", "minLength": 1 },
+          "rule_type": { "type": "string", "enum": ["inclusion", "exclusion", "other"] },
+          "group_code": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "generation_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "evaluator_version": { "type": "string", "minLength": 1 },
+    "evaluations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "rule_version", "result_code"],
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": { "type": "string" },
+          "rule_version": { "type": "string", "minLength": 1 },
+          "result_code": { "type": "string", "enum": ["met", "not_met", "unknown"] },
+          "evidence_fact_ids": { "type": "array", "items": { "type": "string" } },
+          "needs_confirmation": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

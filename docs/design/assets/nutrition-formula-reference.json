@@ -1,0 +1,19 @@
+{
+  "version": "2026-10-14",
+  "source_assets": [
+    "nutrition-formula-comparison.png",
+    "enteral-nutrition-formula-types.png"
+  ],
+  "use": "本机开发、查询与使用记录的参考索引；实际产品规格、适用性与用量以标签及医疗或营养专业人员意见为准。",
+  "formula_types": [
+    { "code": "aa", "name": "氨基酸型（AA）", "generic_name": "肠内营养粉", "reference_note": "图表资料中的类型说明。" },
+    { "code": "sp", "name": "短肽型（SP）", "generic_name": "肠内营养混悬液", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tp", "name": "整蛋白型（平衡型）", "generic_name": "肠内营养乳剂", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tpf", "name": "整蛋白加膳食纤维型（TPF）", "generic_name": "肠内营养乳剂", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tp_he", "name": "高能量整蛋白型（TP-HE）", "generic_name": "肠内营养乳剂", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tpf_dm", "name": "糖尿病适用型（TPF-D / TPF-DM）", "generic_name": "肠内营养制剂", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tpf_t", "name": "肿瘤适用型（TPF-T）", "generic_name": "肠内营养乳剂", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tp_mct", "name": "肝病适用型（TP-MCT）", "generic_name": "肠内营养混悬液", "reference_note": "图表资料中的类型说明。" },
+    { "code": "tp_fos", "name": "低聚果糖型（TP-FOS）", "generic_name": "肠内营养混悬液", "reference_note": "图表资料中的类型说明。" }
+  ]
+}
