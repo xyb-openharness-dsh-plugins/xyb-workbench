@@ -6,7 +6,7 @@
 
 - 先确认目标用户、业务场景和用户从进入到完成任务的核心流程。目录名、示例代码和现有界面不能代替需求确认。
 - 阅读 [Codex Workbench 开发与部署指南](docs/WORKBENCH-DEVELOPMENT-WITH-CODEX.md) 和 [DSH 官方开发规范](https://dshdesktop.com/workbench/docs/development.md)。
-- 阅读 `README.md`、相关 schema、当前高精度原型（小胰宝页面以 `docs/xyb-workbench/prototype-v3.html` 为准），并检查 `git status`。保留用户已有未提交更改。
+- 阅读 `README.md`、相关 schema、当前高精度原型（小胰宝既有业务页以 `docs/design/prototype-v3.html` 为准；AI 对话框架以 `docs/design/prototype-v4.html` 为准），并检查 `git status`。保留用户已有未提交更改。
 - 先从原型整理页面树、关键字段、状态、交互和闭环，再与现有实现逐页比较；未开发页面按原型实现，已有页面按差异补齐。没有特别原因，不得擅自简化或合并原型页面。
 
 ## 实现约定
