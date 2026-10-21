@@ -192,7 +192,7 @@ async function handleApi(req, res, config) {
       const localText = ['.txt', '.md', '.csv'].includes(sourceDocument.extension)
       if (!localText && settings.parseMode === 'local_mineru' && !settings.mineruCloudConsent) return json(res, 428, { error: '首次使用 MinerU 前请阅读云端解析说明并确认。', code: 'mineru_consent_required' })
       const mineru = settings.parseMode === 'local_mineru'
-        ? async (document, extension) => extractWithMineru(document.bytes, extension, { token: mineruCredential.token, model: settings.mineruModel })
+        ? async (document, extension) => extractWithMineru(document.bytes, extension, { token: mineruCredential.token, tokenSource: mineruCredential.source, model: settings.mineruModel })
         : null
       return json(res, 202, { job: store.queueParse(documentId, { mineru }) })
     }

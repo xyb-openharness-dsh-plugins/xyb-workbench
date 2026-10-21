@@ -71,7 +71,7 @@ function safeDetail(error) {
   return String(error?.message || '').slice(0, 260)
 }
 
-async function requestJson(fetchImpl, url, { method = 'GET', token, body = null, timeoutMs = 60000 } = {}) {
+async function requestJson(fetchImpl, url, { method = 'GET', token, tokenSource = '', body = null, timeoutMs = 60000 } = {}) {
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
   if (body !== null) headers['Content-Type'] = 'application/json'
@@ -93,10 +93,27 @@ async function requestJson(fetchImpl, url, { method = 'GET', token, body = null,
   }
 
   if (response.status === 401 || response.status === 403) {
+    // 把 MinerU 自己的报文读出来：`user token expired` 和 `invalid token` 是两种处理，
+    // 只报“401”会让用户以为是网络或代码问题（实际是换了 Token 没生效）。
+    let apiMessage = ''
+    try {
+      const text = await response.text()
+      apiMessage = String(JSON.parse(text)?.msg || '').trim()
+    } catch { /* 报文不是 JSON 就只按状态码说 */ }
+    const reason = /expired|过期/iu.test(apiMessage)
+      ? 'Token 已过期'
+      : /invalid|无效/iu.test(apiMessage) ? 'Token 无效' : apiMessage
+    const from = tokenSource === 'config-file'
+      ? '本次使用的是你在设置里保存的 Token'
+      : tokenSource === 'environment'
+        ? '本次使用的是环境变量 MINERU_TOKEN（它会盖过设置里未保存的值；如已换新 Token 仍报错，检查是否存在这条环境变量）'
+        : tokenSource === 'bundled-community'
+          ? '本次使用的是随包公益 Token'
+          : ''
     throw new MineruError(
       'UNAUTHORIZED',
-      `MinerU 拒绝了这个 Token（HTTP ${response.status}）。可在设置中替换 Token，或到 mineru.net 申请新的。`,
-      { status: response.status },
+      `MinerU 拒绝了这个 Token（HTTP ${response.status}${reason ? `，${reason}` : ''}）。${from}可在设置中替换 Token，或到 mineru.net 申请新的`,
+      { status: response.status, apiMessage },
     )
   }
 
@@ -115,10 +132,10 @@ async function requestJson(fetchImpl, url, { method = 'GET', token, body = null,
 }
 
 /** ① 申请上传链接；返回 batchId 与 PUT 地址。 */
-async function createUploadBatch(fetchImpl, baseUrl, token, { name, modelVersion, language, timeoutMs }) {
+async function createUploadBatch(fetchImpl, baseUrl, token, tokenSource, { name, modelVersion, language, timeoutMs }) {
   const body = { enable_formula: true, enable_table: true, language, files: [{ name }] }
   if (modelVersion) body.model_version = modelVersion
-  const json = await requestJson(fetchImpl, `${baseUrl}/file-urls/batch`, { method: 'POST', token, body, timeoutMs })
+  const json = await requestJson(fetchImpl, `${baseUrl}/file-urls/batch`, { method: 'POST', token, tokenSource, body, timeoutMs })
   const batchId = json?.data?.batch_id
   const urls = json?.data?.file_urls
   if (!batchId || !Array.isArray(urls) || urls.length !== 1) {
@@ -139,10 +156,10 @@ async function uploadFile(fetchImpl, uploadUrl, bytes, timeoutMs) {
 }
 
 /** ③ 轮询到结束。 */
-async function waitForBatch(fetchImpl, baseUrl, token, batchId, { intervalMs, timeoutMs }) {
+async function waitForBatch(fetchImpl, baseUrl, token, tokenSource, batchId, { intervalMs, timeoutMs }) {
   const startedAt = Date.now()
   for (;;) {
-    const json = await requestJson(fetchImpl, `${baseUrl}/extract-results/batch/${batchId}`, { token, timeoutMs: 30000 })
+    const json = await requestJson(fetchImpl, `${baseUrl}/extract-results/batch/${batchId}`, { token, tokenSource, timeoutMs: 30000 })
     const results = json?.data?.extract_result
     if (!Array.isArray(results)) throw new MineruError('BAD_RESPONSE', '批次结果里没有 extract_result 数组')
     const pending = results.filter((r) => r.state !== 'done' && r.state !== 'failed')
@@ -192,6 +209,7 @@ async function downloadMarkdown(fetchImpl, zipUrl, timeoutMs) {
  */
 export async function extractWithMineru(bytes, extension, {
   token = '',
+  tokenSource = '',
   model = MINERU_MODEL_DEFAULT,
   fetchImpl = null,
   baseUrl = MINERU_BASE_URL,
@@ -216,9 +234,9 @@ export async function extractWithMineru(bytes, extension, {
   for (const modelVersion of attempts) {
     try {
       const name = `source${extension}`
-      const { batchId, uploadUrl } = await createUploadBatch(useFetch, baseUrl, entry, { name, modelVersion, language, timeoutMs: requestTimeoutMs })
+      const { batchId, uploadUrl } = await createUploadBatch(useFetch, baseUrl, entry, tokenSource, { name, modelVersion, language, timeoutMs: requestTimeoutMs })
       await uploadFile(useFetch, uploadUrl, bytes, Math.max(requestTimeoutMs, 300000))
-      const result = await waitForBatch(useFetch, baseUrl, entry, batchId, { intervalMs, timeoutMs })
+      const result = await waitForBatch(useFetch, baseUrl, entry, tokenSource, batchId, { intervalMs, timeoutMs })
 
       if (result.state !== 'done') {
         // 文件本身失败：不换模型重试，直接报

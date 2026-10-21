@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSettings, readWorkbenchSettings, resolveMineruToken, saveWorkbenchSettings, setDataRoot } from '../dsh/settings.js'
@@ -48,3 +48,37 @@ test('uses the bundled community MinerU credential when no local override exists
   assert.equal(resolved.source, 'bundled-community')
   assert.ok(resolved.token.startsWith('sk-'))
 })
+
+test('设置里保存的 Token 优先于环境变量（环境里留着过期 Key 时也能换新生效）', async () => {
+  const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-token-priority-'))
+  const userHome = join(serviceRoot, 'home')
+  await mkdir(join(userHome, '.mineru'), { recursive: true })
+  await writeFile(join(userHome, '.mineru', 'config.yaml'), 'token: sk-savedinui-0001\n', { mode: 0o600 })
+
+  // 环境变量里是一把失效的旧 Key —— 这正是用户遇到 401 的真实场景
+  const resolved = await resolveMineruToken({ userHome, tokenFromEnv: 'sk-stale-env-9999' })
+  assert.equal(resolved.source, 'config-file')
+  assert.equal(resolved.token, 'sk-savedinui-0001')
+
+  // 没保存过配置时才轮到环境变量
+  const emptyHome = join(serviceRoot, 'empty-home')
+  await mkdir(emptyHome)
+  const fromEnv = await resolveMineruToken({ userHome: emptyHome, tokenFromEnv: 'sk-env-only-0002' })
+  assert.equal(fromEnv.source, 'environment')
+  assert.equal(fromEnv.token, 'sk-env-only-0002')
+})
+
+test('保存后返回 Token 来源，界面才能显示"当前生效"是哪一把', async () => {
+  const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-token-source-'))
+  const userHome = join(serviceRoot, 'home')
+  await mkdir(userHome, { recursive: true })
+  const saved = await saveWorkbenchSettings(
+    serviceRoot,
+    { parseMode: 'local_mineru', mineruCloudConsent: true, mineruToken: 'sk-bran-0003' },
+    { userHome },
+  )
+  assert.equal(saved.mineruTokenConfigured, true)
+  assert.equal(saved.mineruTokenSource, 'config-file')
+  assert.equal(JSON.stringify(saved).includes('sk-bran-0003'), false)
+})
+

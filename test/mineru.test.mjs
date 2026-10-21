@@ -99,7 +99,7 @@ test('上传原件不带 Content-Type，Token 只走 Authorization 头', async (
 })
 
 test('Token 被拒（401）时报 UNAUTHORIZED，且不重试', async () => {
-  const { fetchImpl, calls } = harness({ batch: () => ({ ok: false, status: 401, json: async () => ({}) }) })
+  const { fetchImpl, calls } = harness({ batch: () => ({ ok: false, status: 401, json: async () => ({}), text: async () => '{}' }) })
   await assert.rejects(() => run({ fetchImpl }), (error) => {
     assert.equal(error.code, 'UNAUTHORIZED')
     assert.match(error.message, /拒绝了这个 Token/u)
@@ -107,6 +107,28 @@ test('Token 被拒（401）时报 UNAUTHORIZED，且不重试', async () => {
     return true
   })
   assert.equal(calls.filter((c) => c.method === 'POST').length, 1)
+})
+
+test('401 报文里的 user token expired 要翻译出来，并写明这次用的是哪把 Token', async () => {
+  const { fetchImpl } = harness({
+    batch: () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({}),
+      text: async () => JSON.stringify({ msgCode: 'A0211', msg: 'user token expired', success: false }),
+    }),
+  })
+  await assert.rejects(
+    () => run({ fetchImpl, tokenSource: 'environment' }),
+    (error) => {
+      assert.equal(error.code, 'UNAUTHORIZED')
+      assert.match(error.message, /Token 已过期/u)
+      assert.match(error.message, /环境变量 MINERU_TOKEN/u)
+      // 不能把 Token 本身写进错误消息
+      assert.equal(error.message.includes('test-token'), false)
+      return true
+    },
+  )
 })
 
 test('默认 vlm：batch 请求里带 model_version=vlm', async () => {

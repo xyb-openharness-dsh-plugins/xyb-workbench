@@ -52,15 +52,24 @@ async function writeSettings(serviceRoot, patch) {
 
 function mineruConfigFile(userHome) { return join(userHome, '.mineru', 'config.yaml') }
 
+/**
+ * Token 解析优先级：**用户在工作台设置里保存的 > 环境变量 > 随包公益 Token**。
+ *
+ * 2026-10-22 修正：原顺序是「环境变量优先」，结果是用户在本机环境里留着一条
+ * `MINERU_TOKEN`（早已过期）时，在设置界面换成新 Token 也永远不生效——请求一直用
+ * 环境里那把，返回 401 `user token expired`，用户只能得出"换了也不行"的结论。
+ * 用户在界面里显式保存，就是最明确的意图，应该盖过环境变量。
+ */
 export async function resolveMineruToken({ userHome = homedir(), tokenFromEnv = process.env.MINERU_TOKEN } = {}) {
-  const envToken = String(tokenFromEnv || '').trim()
-  if (envToken) return { token: envToken, source: 'environment' }
   try {
     const text = await readFile(mineruConfigFile(userHome), 'utf8')
     const match = text.match(/^token:\s*["']?([^\s"']+)["']?\s*$/m)
     if (match?.[1]) return { token: match[1], source: 'config-file' }
   } catch (error) { if (error?.code !== 'ENOENT') throw new Error('无法读取 MinerU 配置') }
+  const envToken = String(tokenFromEnv || '').trim()
+  if (envToken) return { token: envToken, source: 'environment' }
   return communityMineruToken ? { token: communityMineruToken, source: 'bundled-community' } : { token: '', source: '' }
+
 }
 
 export async function readWorkbenchSettings(serviceRoot, options = {}) {

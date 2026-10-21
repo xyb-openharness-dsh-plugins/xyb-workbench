@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-10-22 · 修 Token 优先级与设置弹窗（包版本 0.1.32）
+
+- **「换了新 Token 还是 401」是代码 bug，不是 Token 问题**。`resolveMineruToken` 原来把环境变量 `MINERU_TOKEN` 排在第一位：本机环境里留着一条早已过期的 Key，用户在设置界面换成新 Token 也只写进 `~/.mineru/config.yaml`，请求始终用环境里那把，云端返回 401 `user token expired`。
+  - 实测三把 Key：环境变量 → **401 expired**；`config.yaml`（界面换的新 Key）→ 有效；随包公益 Key → 有效。
+  - 改为 **设置里保存的 > 环境变量 > 随包公益**：界面里显式保存是最明确的意图，应当盖过环境变量。
+- 401 报文不再只报"401"：解析云端返回的 `msg`，`user token expired` 会翻译成「Token 已过期」，并写明本次用的是哪一把（设置中的 / 环境变量 / 随包公益）。Token 本身不进错误消息。
+- 设置里「当前生效」来源可见，避免再出现"我改了但它没用"的困惑。
+- **设置弹窗保存后自动关闭**（原来保存成功仍要手动点关闭）。
+- **解析模型下拉原来写死 `value="pipeline"`**：界面上只有一个选项、选什么都存 pipeline，0.1.30 改的默认 vlm 在 UI 侧被吃掉。现改为 vlm / pipeline 两项受控选择。
+- 文案去掉已不存在的「Flash 免费解析」承诺（该兜底在 0.1.31 随 CLI 一起移除）。
+- 验证：`npm run check` 34/34 全绿；新增「设置里的 Token 优先于环境变量」「保存返回来源」「401 expired 翻译」等 4 项测试。
+
 ## 2026-10-22 · 解析改走 HTTP API（包版本 0.1.31）
 
 - **换的是传输层，起因是实测**：`dsh/mineru.js` 原来 `execFile('mineru-open-api')` 按 PATH 找 CLI 二进制。装机后用 GUI 典型 PATH（`/usr/bin:/bin:/usr/sbin:/sbin`）实测 **ENOENT**——桌面端从 Finder 启动拿不到 shell 的 PATH，市场分发的用户机器更是没有这个二进制。抽取层修得再对，解析起不来用户还是看不到候选。
