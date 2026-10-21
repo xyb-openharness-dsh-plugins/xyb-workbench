@@ -17,11 +17,12 @@ export async function readSettings(serviceRoot) {
     return {
       dataRoot: typeof parsed.dataRoot === 'string' ? parsed.dataRoot : '',
       parseMode: parsed.parseMode === 'local' ? 'local' : 'local_mineru',
-      mineruModel: 'pipeline',
+      // 用户显式选过的模型要读回来（此前这里写死，设置项存了也不生效）
+      mineruModel: ['vlm', 'pipeline'].includes(parsed.mineruModel) ? parsed.mineruModel : 'vlm',
       mineruCloudConsent: parsed.mineruCloudConsent === true,
     }
   } catch (error) {
-    if (error && error.code === 'ENOENT') return { dataRoot: '', parseMode: 'local_mineru', mineruModel: 'pipeline', mineruCloudConsent: false }
+    if (error && error.code === 'ENOENT') return { dataRoot: '', parseMode: 'local_mineru', mineruModel: 'vlm', mineruCloudConsent: false }
     throw new Error('无法读取工作台设置')
   }
 }
@@ -71,7 +72,7 @@ export async function readWorkbenchSettings(serviceRoot, options = {}) {
 
 export async function saveWorkbenchSettings(serviceRoot, input, { userHome = homedir() } = {}) {
   const parseMode = input?.parseMode === 'local' ? 'local' : 'local_mineru'
-  const mineruModel = 'pipeline'
+  const mineruModel = ['vlm', 'pipeline'].includes(input?.mineruModel) ? input.mineruModel : 'vlm'
   const mineruCloudConsent = input?.mineruCloudConsent === true
   const token = String(input?.mineruToken || '').trim()
   if (parseMode === 'local_mineru' && !mineruCloudConsent) throw new Error('启用 MinerU 前请先确认云端解析说明')

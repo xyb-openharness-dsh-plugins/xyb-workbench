@@ -58,3 +58,55 @@ test('does not retry unrelated MinerU API failures', async () => {
   await assert.rejects(() => extractWithMineru(Buffer.from('%PDF-1.4 synthetic'), '.pdf', { token: 'test-token', runner }), /MinerU 解析失败/u)
   assert.deepEqual(calls, ['extract'])
 })
+
+test('默认用 vlm 模型（表格还原更好），engine 里写明实际模型', async () => {
+  const calls = []
+  const runner = async (args) => {
+    calls.push(args)
+    return { stdout: '# Synthetic MinerU result' }
+  }
+  const result = await extractWithMineru(Buffer.from('%PDF-1.4 synthetic'), '.pdf', { token: 'test-token', runner })
+  assert.deepEqual(calls.map((args) => args.slice(0, 3)), [['extract', calls[0][1], '--model']])
+  assert.equal(calls[0][3], 'vlm')
+  assert.equal(result.engine, 'mineru-api-vlm')
+})
+
+test('接口明确拒绝 vlm 时回退 pipeline，并说明表格质量可能下降', async () => {
+  const calls = []
+  const runner = async (args) => {
+    calls.push(args[3])
+    if (args[3] === 'vlm') {
+      const error = new Error('HTTP 400 invalid argument: model vlm is not supported')
+      error.stderr = 'HTTP 400 invalid argument: model vlm is not supported'
+      throw error
+    }
+    return { stdout: '# Synthetic result from pipeline' }
+  }
+  const result = await extractWithMineru(Buffer.from('%PDF-1.4 synthetic'), '.pdf', { token: 'test-token', runner })
+  assert.deepEqual(calls, ['vlm', 'pipeline'])
+  assert.equal(result.engine, 'mineru-api-pipeline')
+  assert.match(result.message, /不支持 vlm 模型/u)
+})
+
+test('文件本身解析失败不换模型重试（不多花一次额度）', async () => {
+  const calls = []
+  const runner = async (args) => {
+    calls.push(args[3])
+    const error = new Error('HTTP 500 conversion failed')
+    error.stderr = 'HTTP 500 conversion failed'
+    throw error
+  }
+  await assert.rejects(() => extractWithMineru(Buffer.from('%PDF-1.4 synthetic'), '.pdf', { token: 'test-token', runner }), /MinerU 解析失败/u)
+  assert.deepEqual(calls, ['vlm'])
+})
+
+test('没有 Token 时直接走 Flash 免鉴权模式', async () => {
+  const calls = []
+  const runner = async (args) => {
+    calls.push(args[0])
+    return { stdout: '# Flash result' }
+  }
+  const result = await extractWithMineru(Buffer.from('%PDF-1.4 synthetic'), '.pdf', { runner })
+  assert.deepEqual(calls, ['flash-extract'])
+  assert.equal(result.engine, 'mineru-flash')
+})

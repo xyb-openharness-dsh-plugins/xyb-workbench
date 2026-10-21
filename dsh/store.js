@@ -4,6 +4,7 @@ import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyMigrations } from './migrate.js'
+import { extractObservationCandidates } from './extract.js'
 import { Document, HeadingLevel, Packer, Paragraph } from 'docx'
 
 const schemaDirectory = fileURLToPath(new URL('../schema/', import.meta.url))
@@ -809,46 +810,3 @@ function shiftSchedule(value, deltaMs) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-const metricAliases = [
-  [/糖类抗原\s*19[- ]?9|CA\s*19[- ]?9|CA199/iu, 'CA19-9'],
-  [/癌胚抗原|\bCEA\b/iu, 'CEA'],
-  [/糖类抗原\s*125|CA\s*125|CA125/iu, 'CA125'],
-]
-
-function extractObservationCandidates(source, reportedAt) {
-  const found = []
-  const date = source.match(/\b(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b/u)?.[1]?.replaceAll('/', '-').replaceAll('.', '-') || reportedAt
-  const csvLines = source.split(/\r?\n/u).filter((line) => line.trim())
-  if (csvLines.length > 1 && csvLines[0].includes(',')) {
-    const cells = (line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/u).map((cell) => cell.trim().replace(/^"|"$/gu, '').replaceAll('""', '"'))
-    const headers = cells(csvLines[0]).map((item) => item.toLowerCase())
-    const pick = (patterns) => headers.findIndex((header) => patterns.some((pattern) => pattern.test(header)))
-    const dateColumn = pick([/date|日期|时间/u]), metricColumn = pick([/metric|指标|项目|名称/u]), valueColumn = pick([/value|result|数值|结果/u]), unitColumn = pick([/unit|单位/u])
-    if (metricColumn >= 0 && valueColumn >= 0) {
-      csvLines.slice(1).forEach((line, index) => {
-        const row = cells(line), metricText = row[metricColumn] || '', alias = metricAliases.find(([pattern]) => pattern.test(metricText))
-        const raw = row[valueColumn] || '', valueMatch = raw.match(/(>=|<=|>|<)?\s*(\d+(?:\.\d+)?)/u)
-        const rowDate = (dateColumn >= 0 ? row[dateColumn] : '')?.match(/20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/u)?.[0]?.replaceAll('/', '-').replaceAll('.', '-') || date
-        if (!alias || !valueMatch || !rowDate) return
-        const sourceLocator = `row:${index + 2}`
-        found.push({ sourceLocator, confidence: 0.92, payload: { metricCode: alias[1], valueNum: Number(valueMatch[2]), valueRaw: `${valueMatch[1] || ''}${valueMatch[2]}`, comparator: valueMatch[1] || '=', unitRaw: unitColumn >= 0 ? row[unitColumn] || null : null, occurredAt: rowDate, sourceLocator, sourceText: line.trim() } })
-      })
-      if (found.length) return found
-    }
-  }
-  if (!date) return found
-  for (const [index, line] of source.split(/\r?\n/u).entries()) {
-    const alias = metricAliases.map(([pattern, metricCode]) => ({ match: pattern.exec(line), metricCode })).find((entry) => entry.match)
-    if (!alias) continue
-    const value = line.slice(alias.match.index + alias.match[0].length).match(/(?:[:：=\s]+)(>=|<=|>|<)?\s*(\d+(?:\.\d+)?)(?:\s*([a-zA-Zμµ/%]+))?/u)
-    if (!value) continue
-    const comparator = value[1] || '='
-    const valueRaw = `${comparator === '=' ? '' : comparator}${value[2]}`
-    found.push({
-      sourceLocator: `line:${index + 1}`,
-      confidence: 0.9,
-      payload: { metricCode: alias.metricCode, valueNum: Number(value[2]), valueRaw, comparator, unitRaw: value[3] || null, occurredAt: date, sourceLocator: `line:${index + 1}`, sourceText: line.trim() },
-    })
-  }
-  return found
-}
