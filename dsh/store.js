@@ -133,7 +133,8 @@ export class XybStore {
         source = extracted.markdown
         extractionMessage = extracted.message || ''
         usedEngine = extracted.engine
-        this.db.prepare('UPDATE extraction_run SET engine = ?, engine_version = ? WHERE id = ?').run(extracted.engine, 'cli', runId)
+        // engine_version 记协议版本：v4 = HTTP API（此前 CLI 期写死 'cli'）
+        this.db.prepare('UPDATE extraction_run SET engine = ?, engine_version = ? WHERE id = ?').run(extracted.engine, 'v4', runId)
         const outputDirectory = join(this.root, 'output', 'extractions', document.patientId)
         await mkdir(outputDirectory, { recursive: true, mode: 0o700 })
         await writeFile(join(outputDirectory, `${runId}.md`), source, { mode: 0o600 })

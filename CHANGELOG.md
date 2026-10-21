@@ -1,5 +1,16 @@
 # 变更记录
 
+## 2026-10-22 · 解析改走 HTTP API（包版本 0.1.31）
+
+- **换的是传输层，起因是实测**：`dsh/mineru.js` 原来 `execFile('mineru-open-api')` 按 PATH 找 CLI 二进制。装机后用 GUI 典型 PATH（`/usr/bin:/bin:/usr/sbin:/sbin`）实测 **ENOENT**——桌面端从 Finder 启动拿不到 shell 的 PATH，市场分发的用户机器更是没有这个二进制。抽取层修得再对，解析起不来用户还是看不到候选。
+- 改为 MinerU **HTTP API v4** 四步：`POST /file-urls/batch` 申请链接 → `PUT` 上传（不设 `Content-Type`）→ 轮询 `GET /extract-results/batch/{id}` → 下载 `full_zip_url` 解出 `full.md`。用户机器上不再需要任何额外程序，只需要网络。
+- 新增 `lib/zip.js`（最小 ZIP 读取器，无第三方依赖），与 GIST/乳腺/淋巴瘤三仓同一份（md5 `948a08e3…`）。**这笔是复制债**：四个仓库各存一份，应沉到脚手架 `project-template/`，本轮先保证可用。
+- `engine_version` 从写死的 `'cli'` 改为 `'v4'`；`engine` 仍是 `mineru-api-vlm` / `mineru-api-pipeline`，`store.js` 里按 `mineru-` 前缀判断解析结果的逻辑不受影响。
+- **去掉 CLI 的 flash 免鉴权兜底**：那条路径本身依赖本机二进制（桌面端本就不可用），且 HTTP 侧没有等价能力。Token 失效时改为明确提示"到设置里替换 Token 或到 mineru.net 申请"，不再静默降级成另一套质量口径的解析。
+- **代理是已知缺口**：CLI 时代 curl 会认 `HTTP_PROXY`，Node 内置 `fetch` 不认。连接失败时若检测到代理变量，错误里直接写明"当前版本的内置请求不走系统代理"，避免用户去查网络或 Token。真正的代理支持需要引入 `undici` 的 ProxyAgent，本轮未做、不要假装有。
+- 错误语义细化：`UNAUTHORIZED`（401/403，不重试）/ `TASK_FAILED`（文件本身失败，不换模型）/ `TIMEOUT` / `NO_MARKDOWN`（zip 里没有 `full.md` 就失败，不返回半份结果）/ `NO_TOKEN`（不发匿名请求）。
+- 验证：`npm run check` 通过；tests=31, pass=31, fail=0（MinerU 客户端 11 项离线测试：四步顺序、上传不带 Content-Type、401 不重试、vlm 默认、拒 vlm 回退 pipeline、文件失败不换模型、缺 full.md 报错、多次轮询、无 Token 不发请求）。**尚未联网实测真实文件**——离线测试证明的是协议与错误路径，不是云端真实返回。
+
 ## 2026-10-21 · 文档解析修复（包版本 0.1.30）
 
 - **修的是"抽不出指标"，不是传输层**：MinerU 的 `full.md` 表格是 `<table><tr><td>` HTML，原抽取器按行读文本，整表被压成一行 → 传一份表格化验单 PDF 抽出 0 条。现改为先 `htmlTablesToPipes()` 转竖线表（含 `colspan` 补位、HTML 实体还原），再按位置对齐；项目数与数值数不一致整行放弃。
