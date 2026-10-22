@@ -1,5 +1,16 @@
 # 变更记录
 
+## 2026-10-22 · MinerU 跨工作台统一口径（包版本 0.1.34）
+
+用户给了四条口径并逐条拍板：「默认 precision / 可选 flash；precision 走 API v4 四步；token 必需且 `.secrets/mineru.json` 唯一；flash 免 token 只回 markdown」。本轮把能落地的两条落到代码，把落不了的一条改成如实标注。
+
+- **默认解析模型改回 `pipeline`**（`dsh/mineru.js` 的 `MINERU_MODEL_DEFAULT`，回退 `vlm`）。设置弹窗下拉的两个选项说明与默认态同步改写，`|| 'vlm'` 的兜底表达式改 `'pipeline'`。代价写在注释里：空格分列的检验单 PDF 用 pipeline 可能丢列。
+- **`.secrets/mineru.json` 成为唯一密钥文件**：`dsh/settings.js` 删掉 `mineruConfigFile()`、删掉所有往 `~/.mineru/config.yaml` 读写 YAML 的分支，改为 `mineruSecretFile()` + `readSecretToken` / `writeSecretToken`（JSON、0600、原子改名、解析失败不覆盖）。`tokenSource` 的 `config-file` 改名 `secret-file`。
+- **env 保留为兜底，不删**：`MINERU_TOKEN` 仍在，但排在文件之后（本仓 0.1.32 起就是这个顺序，本轮与其余五仓对齐）。设置页文案改为「唯一本地密钥文件 + env 只作临时覆盖」，不再暗示 CLI 共用。
+- **测试重写**：`test/settings.test.mjs` 5 条改为 `tokenFile` 注入（临时目录），断言 `source === 'secret-file'`、mode 0600、`~/.mineru/config.yaml` 不存在；`test/mineru.test.mjs` 3 条反转（默认 pipeline、拒 pipeline 才回退 vlm）。`npm run check` 34/34 全绿。
+- **文档**：`docs/design/SETTINGS-SPEC.md` §3.5 整节重写（原「与 CLI 共用 config.yaml」决策作废）、§3.2 / §4 / 决策表同步；`RESOURCE-DEPENDENCIES.md`、`IMPLEMENTATION-QUEUE.md`、`docs/design/README.md`、`docs/design/prototype-v2.html` 文案一并改。
+- **未做、已在文档标注**：① Flash 通道（`POST /api/v1/agent/parse/file`）全家族 0 处实现，「轻量模式，结果可能不准」无落点；② `.gitignore` 补 `.secrets/`（此前漏了，测试时曾让假 Token 落进工作区）。
+
 ## 2026-10-22 · Token 过期后给出路（包版本 0.1.33）
 
 用户原话：「**如果过期了，让AI提醒患者更新key，给用户发mineru的申请链接**」。这轮把"解析失败"从一句报错变成三个可执行动作。
