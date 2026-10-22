@@ -117,3 +117,36 @@ test('creates a patient and exposes an empty dashboard', async () => {
   assert.ok(store.db.prepare('PRAGMA table_info(trial_local_bookmark)').all().some((column) => column.name === 'match_assessment_id'))
   store.close()
 })
+
+test('云端 Token 失效：落库的错误消息带申请地址，且不再套「本地解析失败」', async () => {
+  const { extractWithMineru } = await import('../dsh/mineru.js')
+  const root = await mkdtemp(join(tmpdir(), 'xyb-workbench-'))
+  const store = await openStore(root)
+  const patient = store.createPatient({ displayName: '测试患者' })
+  const pdf = await store.importDocument({ patientId: patient.id, title: '扫描报告.pdf', kindCode: 'other', fileName: 'scan.pdf' }, Buffer.from('%PDF demo'))
+  // 真实的 401 报文：msgCode A0211 / user token expired
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({}),
+    text: async () => JSON.stringify({ msgCode: 'A0211', msg: 'user token expired', success: false }),
+  })
+  await assert.rejects(
+    () => store.parseDocument(pdf.id, {
+      mineru: (document, extension) => extractWithMineru(document.bytes, extension, { token: 'expired-token', tokenSource: 'secret-file', fetchImpl }),
+    }),
+    (error) => {
+      // 前端靠这个地址判定"是 Token 问题"（lib/client.js: mineruAlert）
+      assert.match(error.message, /apiManage\/token/u)
+      assert.match(error.message, /Token 已过期/u)
+      assert.match(error.message, /设置里保存的 Token/u)
+      assert.doesNotMatch(error.message, /本地解析失败/u, '解析走的是云端，不该写「本地」')
+      assert.equal(error.message.includes('expired-token'), false, 'Token 本身不进错误消息')
+      return true
+    },
+  )
+  const run = store.db.prepare("SELECT status, error_message AS errorMessage FROM extraction_run WHERE document_id = ?").get(pdf.id)
+  assert.equal(run.status, 'failed')
+  assert.match(run.errorMessage, /apiManage\/token/u, '落库的也是同一条可被前端识别的消息')
+  store.close()
+})

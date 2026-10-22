@@ -3090,8 +3090,8 @@ function settingsHTML() {
           <div class="token-saved">
             <code>sk-${'·'.repeat(20)}${esc(st.tokenTail)}</code>
             <span class="set-hint">Token 仅用于向 MinerU 发起解析请求。
-              与 MinerU 命令行共用同一配置（<code class="path-code">~/.mineru/config.yaml</code>），
-              因此在终端里也能直接使用。</span>
+              保存在本机 <code class="path-code">.secrets/mineru.json</code>（唯一本地密钥文件，权限 600，已在 .gitignore）；
+              环境变量 <code>MINERU_TOKEN</code> 只作临时覆盖。</span>
             <div class="actions">
               <button class="text-button" data-action="token-verify">校验</button>
               <button class="text-button" data-action="token-remove">移除 Token</button>
@@ -3107,7 +3107,7 @@ function settingsHTML() {
               <button class="primary" data-action="token-save" ${st.tokenDraft ? '' : 'disabled'}>校验并保存</button>
               <button class="text-button" data-action="token-help">如何申请？</button>
             </div>
-            <p class="set-hint" style="margin-top:10px">保存位置：<code class="path-code">~/.mineru/config.yaml</code>（与 MinerU 命令行共用）</p>
+            <p class="set-hint" style="margin-top:10px">保存位置：<code class="path-code">.secrets/mineru.json</code>（唯一本地密钥文件，权限 600）</p>
           </div>`}
         ${st.tokenMsg ? `<div class="set-msg ${st.tokenMsgLv || 'quiet'}">${esc(st.tokenMsg)}</div>` : ''}
       </div>

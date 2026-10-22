@@ -126,9 +126,25 @@ const COMPARATORS = {
   '>': '>', '<': '<', '＞': '>', '＜': '<',
 }
 
+/**
+ * 去掉 LaTeX 包裹与常见命令。
+ *
+ * 为什么需要：真实 MinerU `full.md` 的表格里单位常是 `$10^9/L$`、`10^{9}/L`
+ * （2026-10-22 用真实报告实测），本地夹具写的是纯文本 `10^9/L`，
+ * 所以离线用例一直是绿的、装上之后单位列却原样显示 `$10^9/L$`。
+ * 只做"确定性"转换：剥 `$`、`\\(`\\[`、`\\mu`、花括号，不做数值或化学式推断。
+ */
+function stripLatex(raw) {
+  return String(raw ?? '')
+    .replace(/\$|\\\(|\\\)|\\\[|\\\]/gu, '')
+    .replace(/\\(?:text|mathrm|textrm|mathit)\s*\{([^{}]*)\}/gu, '$1')
+    .replace(/\\mu(?![a-z])/gu, 'μ')
+    .replace(/[{}]/gu, '')
+}
+
 /** 单位归一：只处理确定无歧义的写法，认不出就原样留着 */
 export function normalizeUnit(raw) {
-  const unit = String(raw ?? '').replace(/[（）()]/g, '').replace(/\s+/g, '').trim()
+  const unit = stripLatex(raw).replace(/[（）()]/g, '').replace(/\s+/g, '').trim()
   if (!unit) return null
   return unit
     .replace(/^10\s*[\^*×]?\s*(2|3|4|5|6|7|8|9|12)\s*\/\s*L$/u, (_, power) => `10${SUPERSCRIPT[power]}/L`)

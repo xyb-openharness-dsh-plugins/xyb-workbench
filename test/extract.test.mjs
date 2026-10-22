@@ -101,3 +101,15 @@ test('单位归一：只处理确定无歧义的写法', () => {
   assert.equal(normalizeUnit('（g/L）'), 'g/L')
   assert.equal(normalizeUnit(''), null)
 })
+
+test('LaTeX 包裹的单位要剥掉（真实 full.md 里就是 $10^9/L$）', () => {
+  // 这三条来自 2026-10-22 真实 MinerU 返回的 full.md，本地夹具写的是纯文本，
+  // 所以离线用例一直绿、装到桌面端单位列却原样显示 $10^9/L$
+  assert.equal(normalizeUnit('$10^9/L$'), '10⁹/L')
+  assert.equal(normalizeUnit(' $10^9/L$ '), '10⁹/L')
+  assert.equal(normalizeUnit('10^{9}/L'), '10⁹/L')
+  assert.equal(normalizeUnit('$\\mu mol/L$'), 'μmol/L')
+  assert.equal(normalizeUnit('\\(g/L\\)'), 'g/L')
+  // 认不出的 LaTeX 只剥壳、不做推断
+  assert.equal(normalizeUnit('$mg/dL$'), 'mg/dL')
+})

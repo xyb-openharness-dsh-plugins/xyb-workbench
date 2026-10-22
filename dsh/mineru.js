@@ -17,15 +17,24 @@
  * 1. **Token 不进日志、不进错误消息**，错误里只给状态码；
  * 2. **不猜解析结果**：拿不到 `full.md` 就是失败，不返回半份数据当成功；
  * 3. **文件本身失败不换模型重试**——那只是多花一次额度，结论还是失败。
- *    只有接口明确拒绝模型参数时才退回 pipeline。
+ *    只有接口明确拒绝模型参数时才换另一个模型。
  */
 import { readZip } from '../lib/zip.js'
 
 export const MINERU_BASE_URL = 'https://mineru.net/api/v4'
-export const MINERU_MODEL_DEFAULT = 'vlm'
-export const MINERU_MODEL_FALLBACK = 'pipeline'
+export const MINERU_MODEL_DEFAULT = 'pipeline'
+export const MINERU_MODEL_FALLBACK = 'vlm'
+/**
+ * Token 申请 / 重置页。
+ *
+ * 这个地址同时是"这是一类 Token 问题"的约定标记：客户端只认错误消息里有没有它
+ * （见 lib/client.js 的 mineruAlert），不另造一套状态码，避免前后端各猜一套。
+ */
+export const MINERU_TOKEN_URL = 'https://mineru.net/apiManage/token'
 
-const supported = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.html'])
+// 2026-10-22 实测：v4 批量接口拒收 HTML（`model_version 'vlm'/'pipeline' cannot process html files`，-10002），
+// 所以白名单里不再放 `.html`。留着它等于承诺一个一定失败的入口。
+const supported = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'])
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export class MineruError extends Error {
@@ -40,7 +49,8 @@ export class MineruError extends Error {
 /**
  * 接口是否"明确不接受这个模型参数"。
  *
- * 为什么只对这一类错误换模型：`vlm` 是默认（表格还原明显更好），但个别账号/版本会拒。
+ * 为什么只对这一类错误换模型：默认 `pipeline`（2026-10-22 跨工作台统一口径），个别账号/版本会拒；
+ * 压平表格用 `vlm` 还原更稳，调用方可显式传 `model: 'vlm'`。
  * **文件本身解析失败不换模型重试**——那只会多花一次额度，结论还是失败。
  */
 export function modelFallbackWorthy(error) {
@@ -103,7 +113,7 @@ async function requestJson(fetchImpl, url, { method = 'GET', token, tokenSource 
     const reason = /expired|过期/iu.test(apiMessage)
       ? 'Token 已过期'
       : /invalid|无效/iu.test(apiMessage) ? 'Token 无效' : apiMessage
-    const from = tokenSource === 'config-file'
+    const from = tokenSource === 'secret-file'
       ? '本次使用的是你在设置里保存的 Token'
       : tokenSource === 'environment'
         ? '本次使用的是环境变量 MINERU_TOKEN（它会盖过设置里未保存的值；如已换新 Token 仍报错，检查是否存在这条环境变量）'
@@ -112,7 +122,7 @@ async function requestJson(fetchImpl, url, { method = 'GET', token, tokenSource 
           : ''
     throw new MineruError(
       'UNAUTHORIZED',
-      `MinerU 拒绝了这个 Token（HTTP ${response.status}${reason ? `，${reason}` : ''}）。${from}可在设置中替换 Token，或到 mineru.net 申请新的`,
+      `MinerU 拒绝了这个 Token（HTTP ${response.status}${reason ? `，${reason}` : ''}）。${from}可在设置中替换 Token，或到 ${MINERU_TOKEN_URL} 申请 / 重置。`,
       { status: response.status, apiMessage },
     )
   }
@@ -203,7 +213,7 @@ async function downloadMarkdown(fetchImpl, zipUrl, timeoutMs) {
  * @param {string} extension 含点，如 `.pdf`
  * @param {object} opts
  * @param {string} opts.token     MinerU Token（不传就抛，不走匿名请求）
- * @param {string} [opts.model]   `vlm`（默认）或 `pipeline`
+ * @param {string} [opts.model]   `pipeline`（默认）或 `vlm`
  * @param {Function} [opts.fetchImpl] 注入用（单测不联网）
  * @returns {Promise<{markdown: string, engine: string, message?: string}>}
  */
@@ -222,7 +232,7 @@ export async function extractWithMineru(bytes, extension, {
   if (!bytes || bytes.byteLength === 0) throw new Error('文件内容为空，不提交解析。')
   if (bytes.byteLength > 200 * 1024 * 1024) throw new Error('单份资料超过 MinerU 支持的 200 MB 上限。')
   if (!String(token || '').trim()) {
-    throw new Error('没有可用的 MinerU Token：请在设置中填写，或到 mineru.net 申请后重试。')
+    throw new Error(`没有可用的 MinerU Token：请在设置中填写，或到 ${MINERU_TOKEN_URL} 申请后重试。`)
   }
 
   const useFetch = fetchImpl ?? globalThis.fetch
@@ -249,7 +259,7 @@ export async function extractWithMineru(bytes, extension, {
 
       const engine = `mineru-api-${modelVersion}`
       const message = modelVersion !== preferred
-        ? `当前账号不支持 ${preferred} 模型，已改用 ${modelVersion} 解析。表格还原效果可能下降，核对时留意串位。`
+        ? `当前账号不支持 ${preferred} 模型，已改用 ${modelVersion} 解析。结果排版可能不同，核对时留意串位。`
         : ''
       return { markdown, engine, ...(message ? { message } : {}) }
     } catch (error) {

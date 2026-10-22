@@ -163,7 +163,7 @@ dsh plugin add --profile desktop <生成的.tgz>   # 本地 .tgz 安装（CLI �
 - [ ] 确认 SPEC-v0.4 的「全局看板 + 一期三模块」是否符合预期
 - [ ] **心理支持**：[PSYCH-CARE-SPEC §9](./PSYCH-CARE-SPEC.md) 的 8 个问题（**小馨宝官方文案与入群方式**、量表选择、安宁疗护机构库来源与授权、哀伤入口措辞、心理数据是否完全不发模型、心理维度不用红绿灯、热线地区覆盖、自助内容责任）
 - [ ] **全程管理与营养**：[CARE-MANAGEMENT-SPEC §5](./CARE-MANAGEMENT-SPEC.md) 的 7 个问题（命名、营养评估范围、胰酶记录、能量目标来源、维护时间提示、子页顺序、是否加疼痛管理）
-- [x] ~~Token 存放~~ **已定：复用 `~/.mineru/config.yaml`**
+- [x] ~~Token 存放~~ **已定：`.secrets/mineru.json`（2026-10-22 起，不再复用 `~/.mineru/config.yaml`）**
 - [x] **设置入口**：顶栏打开设置弹窗，MinerU 为默认解析选项；首次云端解析需明确同意。细节见 [IMPLEMENTATION-QUEUE.md](./IMPLEMENTATION-QUEUE.md)
 - [ ] **抽取与依赖**：是否接受病历上传 MinerU 云端解析？token 谁提供？CLI 随包还是自装？（[RESOURCE-DEPENDENCIES §9](./RESOURCE-DEPENDENCIES.md)）
 - [ ] **指标目录**：六类清单是否完整、**多指标默认用小倍数图**是否认可、危险值阈值、HGB 自动关联消化道出血是否会造成过度紧张（[INDICATOR-CATALOG §8](./INDICATOR-CATALOG.md)）

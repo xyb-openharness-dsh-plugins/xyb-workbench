@@ -42,7 +42,7 @@
 | 检查 | 结果 |
 |---|---|
 | CLI 是否安装 | ✅ 已安装（`~/.nvm/.../mineru-open-api`，v0.5.9） |
-| Token 是否已配置 | ✅ `~/.mineru/config.yaml` 存在 |
+| Token 是否已配置 | ✅ 本机 `.secrets/mineru.json` 存在（0600，已在 .gitignore）；不再看 `~/.mineru/config.yaml` |
 | `flash-extract`（免 token） | ✅ 成功，1 页医疗 PDF → 2.6 KB Markdown |
 | `extract --model pipeline`（需 token） | ✅ 成功，含图片提取 |
 | 中文识别 | ✅ 良好（胰腺癌、免疫组化、方案名均正确） |
@@ -157,17 +157,18 @@ MinerU 是**云端服务**：文档内容会传输到 `mineru.net` 做服务端�
 
 **Token 形态**：以 `sk-` 开头，本机实测样本长度约 20 字符。
 
-**存放位置**：实测 CLI 存在 `~/.mineru/config.yaml`，字段为 `token`。
+**存放位置（2026-10-22 统一口径）**：仓库内 `.secrets/mineru.json`，`{"token": "sk-..."}`，权限 0600，已进 `.gitignore`。
 
-**决策（已确认）：复用 `~/.mineru/config.yaml`，不另建存储。**
+**决策：`.secrets/mineru.json` 是唯一本地密钥文件。** 不再读/写 `~/.mineru/config.yaml`（那是 CLI 时代的路径，
+会让本机出现两份 token、且换新 Key 后容易「改了不生效」）。环境变量 `MINERU_TOKEN` 只作临时覆盖。
 
-已实测：文件为单行 `token: <值>`，权限 0600；解析优先级为 `--token` > `MINERU_TOKEN` > 配置文件。
+解析优先级：`.secrets/mineru.json` > `MINERU_TOKEN`（临时覆盖）> 随包公益 Token。
 
 | 好处 | 代价与对策 |
 |---|---|
-| 设置页填了命令行也能用，无两份 token | 需原子写入并保留其它键 |
-| 命令行配了工作台开箱即用 | 需处理 `~/.mineru/` 不存在的情况 |
-| 兼容官方文档路径 | 环境变量存在时需提示用户（否则「填了没用」） |
+| 全家族工作台同一个位置、同一个格式（JSON） | 老用户 `~/.mineru/config.yaml` 里的 Token 需在设置页重存一次 |
+| 可与 CLI 并存，互不干扰 | `.secrets/` 必须进 `.gitignore` 与 `files` 白名单之外 |
+| 界面能如实显示来源（文件 / env / 随包） | 环境变量存在时会盖过文件，需在界面写明 |
 
 完整写入规则、边界情况见 [SETTINGS-SPEC §3.5](./SETTINGS-SPEC.md)。
 

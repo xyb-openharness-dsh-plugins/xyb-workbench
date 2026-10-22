@@ -83,7 +83,7 @@ test('按 v4 四步走：申请 → 上传 → 轮询 → 解 zip 取 full.md', 
   assert.ok(calls[2].url.includes('/api/v4/extract-results/batch/b-1'))
   assert.equal(calls[3].url, 'https://zip.invalid/r.zip')
   assert.match(result.markdown, /HGB \| 104/u)
-  assert.equal(result.engine, 'mineru-api-vlm')
+  assert.equal(result.engine, 'mineru-api-pipeline')
   assert.equal(result.message, undefined)
 })
 
@@ -104,6 +104,8 @@ test('Token 被拒（401）时报 UNAUTHORIZED，且不重试', async () => {
     assert.equal(error.code, 'UNAUTHORIZED')
     assert.match(error.message, /拒绝了这个 Token/u)
     assert.match(error.message, /设置中替换/u)
+    // 前端靠这个地址识别"这是 Token 问题"（lib/client.js: mineruAlert），不能删
+    assert.match(error.message, /https:\/\/mineru\.net\/apiManage\/token/u)
     return true
   })
   assert.equal(calls.filter((c) => c.method === 'POST').length, 1)
@@ -131,25 +133,25 @@ test('401 报文里的 user token expired 要翻译出来，并写明这次用�
   )
 })
 
-test('默认 vlm：batch 请求里带 model_version=vlm', async () => {
+test('默认 pipeline：batch 请求里带 model_version=pipeline', async () => {
   const { fetchImpl, calls } = harness()
   await run({ fetchImpl })
-  assert.equal(JSON.parse(calls[0].body).model_version, 'vlm')
+  assert.equal(JSON.parse(calls[0].body).model_version, 'pipeline')
 })
 
-test('接口明确拒绝 vlm 时回退 pipeline，并说明表格质量可能下降', async () => {
+test('接口明确拒绝 pipeline 时回退 vlm，并说明结果排版可能不同', async () => {
   let attempts = 0
   const { fetchImpl, calls } = harness({
     batch: () => {
       attempts += 1
-      if (attempts === 1) return json({ code: -1, msg: 'model vlm is not supported' })
+      if (attempts === 1) return json({ code: -1, msg: 'model pipeline is not supported' })
       return json({ code: 0, data: { batch_id: 'b-2', file_urls: ['https://upload.invalid/put-2'] } })
     },
   })
   const result = await run({ fetchImpl })
-  assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => JSON.parse(c.body).model_version), ['vlm', 'pipeline'])
-  assert.equal(result.engine, 'mineru-api-pipeline')
-  assert.match(result.message, /不支持 vlm 模型/u)
+  assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => JSON.parse(c.body).model_version), ['pipeline', 'vlm'])
+  assert.equal(result.engine, 'mineru-api-vlm')
+  assert.match(result.message, /不支持 pipeline 模型/u)
 })
 
 test('文件本身解析失败不换模型重试（不多花一次额度）', async () => {
@@ -189,11 +191,15 @@ test('一直 pending 会轮询多次，不会一次就放弃', async () => {
   assert.match(result.markdown, /解析结果/u)
 })
 
-test('没有 Token 时直接报错，不发匿名请求', async () => {
+test('没有 Token 时直接报错，不发匿名请求，并给出申请地址', async () => {
   const { fetchImpl, calls } = harness()
   await assert.rejects(
     () => extractWithMineru(Buffer.from('%PDF-1.4 synthetic'), '.pdf', { token: '', fetchImpl }),
-    /没有可用的 MinerU Token/u,
+    (error) => {
+      assert.match(error.message, /没有可用的 MinerU Token/u)
+      assert.match(error.message, /apiManage\/token/u)
+      return true
+    },
   )
   assert.equal(calls.length, 0)
 })
@@ -202,6 +208,15 @@ test('不支持的文件类型在发请求之前就拒绝', async () => {
   const { fetchImpl, calls } = harness()
   await assert.rejects(() => extractWithMineru(Buffer.from('x'), '.exe', { token: 'test-token', fetchImpl }), /不支持此文件类型/u)
   assert.equal(calls.length, 0)
+})
+
+test('HTML 不在支持列表里：v4 批量接口实测拒收（-10002）', async () => {
+  const { fetchImpl, calls } = harness()
+  await assert.rejects(
+    () => extractWithMineru(Buffer.from('<html></html>'), '.html', { token: 'test-token', fetchImpl }),
+    /不支持此文件类型/u,
+  )
+  assert.equal(calls.length, 0, '不该为一定失败的格式先花一次额度')
 })
 
 test('代理环境下连接失败要说明"内置请求不走系统代理"', async () => {

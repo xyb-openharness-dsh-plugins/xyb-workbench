@@ -154,7 +154,9 @@ export class XybStore {
       const detail = error instanceof Error ? error.message : String(error)
       this.db.prepare("UPDATE extraction_run SET status = 'failed', finished_at = ?, error_message = ? WHERE id = ?").run(new Date().toISOString(), detail.slice(0, 1000), runId)
       this.db.prepare("UPDATE document SET parse_status = 'failed' WHERE id = ?").run(document.id)
-      throw new Error(`本地解析失败：${detail}`)
+      // 2026-10-22：不再写「本地解析失败：」前缀。解析可能走 MinerU 云端，写「本地」是错的；
+      // 而且界面已经会加「解析失败：」，两层前缀叠出「解析失败：本地解析失败：…」。
+      throw new Error(detail)
     }
   }
   queueParse(documentId, { mineru = null } = {}) {

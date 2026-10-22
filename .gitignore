@@ -6,3 +6,6 @@ node_modules/
 *.db-wal
 *.db-shm
 backups/
+
+# 本机密钥（唯一 MinerU 密钥文件就在这里）
+.secrets/

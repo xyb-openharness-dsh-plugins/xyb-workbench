@@ -62,6 +62,32 @@ test('registers one canonical DSH workbench provider', async () => {
   assert.match(text, /选择资料文件夹/u)
 })
 
+test('MinerU Token 失效时，界面给出申请入口和 Agent 提醒按钮', async () => {
+  const patient = { id: 'p-test', displayName: '测试患者', heightCm: 165 }
+  const overrides = {
+    0: true,
+    1: [patient],
+    2: patient,
+    3: { patient, latestObservations: [], upcomingAppointments: [], reminders: [] },
+    19: 'records',
+    // 索引 55 = mineruAlert；后端消息里带 Token 申请地址时前端才立这条提醒
+    55: { message: 'MinerU 拒绝了这个 Token（HTTP 401，Token 已过期）。可在设置中替换 Token，或到 https://mineru.net/apiManage/token 申请 / 重置。' },
+  }
+  const { runtime, resetHooks } = await loadClient(overrides)
+  const tree = renderWorkbenchPanel(runtime, 'records', resetHooks)
+  const text = collectText(tree).join(' ')
+  assert.match(text, /MinerU Token 失效了/u, '失效要说人话，不暴露 HTTP 状态码')
+  assert.match(text, /原件已完整保存在本机/u, '先说清资料没丢')
+  assert.match(text, /让 Agent 提醒我怎么更新/u)
+  const links = collectNodes(tree, (node) => node.type === 'a' && String(node.props.href || '').includes('mineru.net/apiManage/token'))
+  assert.ok(links.length >= 1, '申请地址必须可点')
+  assert.equal(links[0].props.target, '_blank')
+
+  overrides[55] = null
+  const plain = collectText(renderWorkbenchPanel(runtime, 'records', resetHooks)).join(' ')
+  assert.doesNotMatch(plain, /MinerU Token 失效了/u, '不是 Token 问题时不弹这条提醒')
+})
+
 test('renders each business tab structure for a local patient', async () => {
   const patient = { id: 'p-test', displayName: '测试患者', heightCm: 165 }
   const overrides = {

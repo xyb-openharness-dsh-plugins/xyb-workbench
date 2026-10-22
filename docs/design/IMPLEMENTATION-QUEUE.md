@@ -15,8 +15,9 @@
 ## 解析行为与限制
 
 - 「MinerU 默认」是功能默认选项，不代表未经提示就上传。首次选择扫描件、图片、PDF 或 Office 解析时，用户需要确认所选文件会发送到 MinerU。
-- 随包公益 Token 默认用于 API pipeline；`MINERU_TOKEN` 环境变量优先，其次 `~/.mineru/config.yaml` 用户 Token，最后使用随包 Token。用户可在设置中替换本机 Token。
-- MinerU 返回凭据过期/无效鉴权错误时，提示用户申请替换 Token，并自动尝试 Flash；Flash 不需要 Token，但会把文件发送到云服务，且遵循 CLI 的 10 MB / 20 页限制。API 与 Flash 都是云端处理，文件发送前仍须明确取得用户同意。
+- 解析模型默认 `pipeline`（2026-10-22 跨工作台统一口径）；`settings.mineruModel` 可传 `vlm` 覆盖，但**暂无界面入口**。
+- 随包公益 Token 是最后兜底；**唯一持久来源是本机 `.secrets/mineru.json`**（权限 600、已在 .gitignore），环境变量 `MINERU_TOKEN` 只作临时覆盖。用户可在设置中替换本机 Token。**不再读写 `~/.mineru/config.yaml`。**
+- MinerU 返回凭据过期/无效鉴权错误时，提示用户申请替换 Token，并自动尝试 Flash；Flash 不需要 Token，但会把文件发送到云服务，且遵循 CLI 的 10 MB / 20 页限制。API 与 Flash 都是云端处理，文件发送前仍须明确取得用户同意。**（Flash 通道目前全家族 0 处实现，属规划项，详见 SETTINGS-SPEC §3.2.1 实施状态）**
 - `mineru-open-api` 由运行 DSH Desktop 的本机环境提供。未安装时给出明确依赖错误；此时原件仍保留，可安装 CLI 后重试。
 - CSV 预览以纯文本呈现（修复下载 MIME 导致的无法预览），解析支持常见日期/检测项目/结果/单位列名与 CA19-9、CEA、CA125；PDF 解析会调用 MinerU 并保存 Markdown 结果供核对。本轮 API 合成 PDF 请求获服务端接受，但结果 CDN 返回 EOF，未确认在线输出可用。其他指标仍需扩展目录映射或手工录入。
 - 任何解析输出只进入候选列表；只有人工确认后才成为患者档案事实。

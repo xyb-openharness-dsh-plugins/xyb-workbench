@@ -9,76 +9,73 @@ test('only persists an accessible data root selected by the user', async () => {
   const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-'))
   const dataRoot = join(serviceRoot, 'patient-data')
   await mkdir(dataRoot)
-  assert.deepEqual(await readSettings(serviceRoot), { dataRoot: '', parseMode: 'local_mineru', mineruModel: 'vlm', mineruCloudConsent: false })
+  assert.deepEqual(await readSettings(serviceRoot), { dataRoot: '', parseMode: 'local_mineru', mineruModel: 'pipeline', mineruCloudConsent: false })
   assert.deepEqual(await setDataRoot(serviceRoot, dataRoot), { dataRoot })
-  assert.deepEqual(await readSettings(serviceRoot), { dataRoot, parseMode: 'local_mineru', mineruModel: 'vlm', mineruCloudConsent: false })
+  assert.deepEqual(await readSettings(serviceRoot), { dataRoot, parseMode: 'local_mineru', mineruModel: 'pipeline', mineruCloudConsent: false })
   await assert.rejects(() => setDataRoot(serviceRoot, join(serviceRoot, 'missing')), /不可访问/)
 })
 
-test('stores MinerU consent and token locally without returning the secret', async () => {
+test('Token 写进 .secrets/mineru.json（唯一密钥文件），接口不回显原文', async () => {
   const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-settings-'))
-  const userHome = join(serviceRoot, 'mock-home')
-  await mkdir(userHome)
-  const saved = await saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: true, mineruModel: 'vlm', mineruToken: 'demo-token_12345678' }, { userHome })
+  const tokenFile = join(serviceRoot, '.secrets', 'mineru.json')
+  const saved = await saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: true, mineruModel: 'pipeline', mineruToken: 'demo-token_12345678' }, { tokenFile })
   assert.equal(saved.mineruTokenConfigured, true)
-  assert.equal(saved.mineruModel, 'vlm', '默认用 vlm：它能把空格分列的表格还原成多列，pipeline 会把整表压成一格（见 docs/design/EXTRACTION-SPEC.md）')
+  assert.equal(saved.mineruModel, 'pipeline', '默认 pipeline（2026-10-22 跨工作台统一口径）')
   assert.equal(JSON.stringify(saved).includes('demo-token_12345678'), false)
-  const config = await readFile(join(userHome, '.mineru', 'config.yaml'), 'utf8')
-  assert.match(config, /^token: demo-token_12345678$/mu)
-  const info = await stat(join(userHome, '.mineru', 'config.yaml'))
+  const secret = JSON.parse(await readFile(tokenFile, 'utf8'))
+  assert.equal(secret.token, 'demo-token_12345678')
+  const info = await stat(tokenFile)
   assert.equal(info.mode & 0o777, 0o600)
-  await assert.rejects(() => saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: false }, { userHome }), /确认云端解析/u)
-  // 用户显式选 pipeline 时要尊重（贴原文、不做版式推断）
-  const pinned = await saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: true, mineruModel: 'pipeline' }, { userHome })
-  assert.equal(pinned.mineruModel, 'pipeline')
+  // 不再往 ~/.mineru/config.yaml 写任何东西
+  await assert.rejects(() => stat(join(serviceRoot, '.mineru', 'config.yaml')), /ENOENT/u)
+  await assert.rejects(() => saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: false }, { tokenFile }), /确认云端解析/u)
+  // 显式选 vlm 要尊重（压平表格用 vlm 还原更稳）
+  const pinned = await saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: true, mineruModel: 'vlm' }, { tokenFile })
+  assert.equal(pinned.mineruModel, 'vlm')
   // 非法值回落到默认
-  const fallback = await saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: true, mineruModel: 'turbo' }, { userHome })
-  assert.equal(fallback.mineruModel, 'vlm')
+  const fallback = await saveWorkbenchSettings(serviceRoot, { parseMode: 'local_mineru', mineruCloudConsent: true, mineruModel: 'turbo' }, { tokenFile })
+  assert.equal(fallback.mineruModel, 'pipeline')
 })
 
-test('uses the bundled community MinerU credential when no local override exists', async () => {
+test('没有本地覆盖时用随包公益 Token', async () => {
   const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-bundled-token-'))
-  const userHome = join(serviceRoot, 'empty-home')
-  await mkdir(userHome)
-  const settings = await readWorkbenchSettings(serviceRoot, { userHome, tokenFromEnv: '' })
+  const tokenFile = join(serviceRoot, 'missing-secrets', 'mineru.json')
+  const settings = await readWorkbenchSettings(serviceRoot, { tokenFile, tokenFromEnv: '' })
   assert.equal(settings.mineruTokenConfigured, true)
   assert.equal(settings.mineruTokenSource, 'bundled-community')
   assert.equal(JSON.stringify(settings).includes('sk-'), false)
-  const resolved = await resolveMineruToken({ userHome, tokenFromEnv: '' })
+  const resolved = await resolveMineruToken({ tokenFile, tokenFromEnv: '' })
   assert.equal(resolved.source, 'bundled-community')
   assert.ok(resolved.token.startsWith('sk-'))
 })
 
-test('设置里保存的 Token 优先于环境变量（环境里留着过期 Key 时也能换新生效）', async () => {
+test('.secrets/mineru.json 优先于环境变量；没有文件才轮到 env', async () => {
   const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-token-priority-'))
-  const userHome = join(serviceRoot, 'home')
-  await mkdir(join(userHome, '.mineru'), { recursive: true })
-  await writeFile(join(userHome, '.mineru', 'config.yaml'), 'token: sk-savedinui-0001\n', { mode: 0o600 })
+  const tokenFile = join(serviceRoot, '.secrets', 'mineru.json')
+  await mkdir(join(serviceRoot, '.secrets'), { recursive: true })
+  await writeFile(tokenFile, JSON.stringify({ token: 'sk-savedinui-0001' }), { mode: 0o600 })
 
   // 环境变量里是一把失效的旧 Key —— 这正是用户遇到 401 的真实场景
-  const resolved = await resolveMineruToken({ userHome, tokenFromEnv: 'sk-stale-env-9999' })
-  assert.equal(resolved.source, 'config-file')
+  const resolved = await resolveMineruToken({ tokenFile, tokenFromEnv: 'sk-stale-env-9999' })
+  assert.equal(resolved.source, 'secret-file')
   assert.equal(resolved.token, 'sk-savedinui-0001')
 
-  // 没保存过配置时才轮到环境变量
-  const emptyHome = join(serviceRoot, 'empty-home')
-  await mkdir(emptyHome)
-  const fromEnv = await resolveMineruToken({ userHome: emptyHome, tokenFromEnv: 'sk-env-only-0002' })
+  // 没有密钥文件时才轮到环境变量
+  const fromEnv = await resolveMineruToken({ tokenFile: join(serviceRoot, 'nope', 'mineru.json'), tokenFromEnv: 'sk-env-only-0002' })
   assert.equal(fromEnv.source, 'environment')
   assert.equal(fromEnv.token, 'sk-env-only-0002')
 })
 
 test('保存后返回 Token 来源，界面才能显示"当前生效"是哪一把', async () => {
   const serviceRoot = await mkdtemp(join(tmpdir(), 'xyb-service-token-source-'))
-  const userHome = join(serviceRoot, 'home')
-  await mkdir(userHome, { recursive: true })
+  const tokenFile = join(serviceRoot, '.secrets', 'mineru.json')
   const saved = await saveWorkbenchSettings(
     serviceRoot,
     { parseMode: 'local_mineru', mineruCloudConsent: true, mineruToken: 'sk-bran-0003' },
-    { userHome },
+    { tokenFile },
   )
   assert.equal(saved.mineruTokenConfigured, true)
-  assert.equal(saved.mineruTokenSource, 'config-file')
+  assert.equal(saved.mineruTokenSource, 'secret-file')
   assert.equal(JSON.stringify(saved).includes('sk-bran-0003'), false)
 })
 
