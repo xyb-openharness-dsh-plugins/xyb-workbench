@@ -9,7 +9,8 @@
 - **env 保留为兜底，不删**：`MINERU_TOKEN` 仍在，但排在文件之后（本仓 0.1.32 起就是这个顺序，本轮与其余五仓对齐）。设置页文案改为「唯一本地密钥文件 + env 只作临时覆盖」，不再暗示 CLI 共用。
 - **测试重写**：`test/settings.test.mjs` 5 条改为 `tokenFile` 注入（临时目录），断言 `source === 'secret-file'`、mode 0600、`~/.mineru/config.yaml` 不存在；`test/mineru.test.mjs` 3 条反转（默认 pipeline、拒 pipeline 才回退 vlm）。`npm run check` 34/34 全绿。
 - **文档**：`docs/design/SETTINGS-SPEC.md` §3.5 整节重写（原「与 CLI 共用 config.yaml」决策作废）、§3.2 / §4 / 决策表同步；`RESOURCE-DEPENDENCIES.md`、`IMPLEMENTATION-QUEUE.md`、`docs/design/README.md`、`docs/design/prototype-v2.html` 文案一并改。
-- **未做、已在文档标注**：① Flash 通道（`POST /api/v1/agent/parse/file`）全家族 0 处实现，「轻量模式，结果可能不准」无落点；② `.gitignore` 补 `.secrets/`（此前漏了，测试时曾让假 Token 落进工作区）。
+- **Flash 通道正式作废（同日晚）**：用户定「flash 不用了」。文档里的 Flash 条款、UI 的 `mineru-flash` / `mineru-flash-fallback` 引擎标签全部移除；现在只有 API v4 一条通路，认证失败就报错 + 给申请链接，不假装降级。
+- **`.gitignore` 补 `.secrets/`**（此前漏了，测试时曾让假 Token 落进工作区）。
 
 ## 2026-10-22 · Token 过期后给出路（包版本 0.1.33）
 
