@@ -1,6 +1,6 @@
 {
   "name": "@xyb-openharness-dsh-plugins/xyb-workbench",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "description": "小胰宝：本机优先的胰腺癌病程整理与照护工作台",
   "private": true,
   "type": "module",
@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check dsh/index.js && node --check dsh/store.js && node --check dsh/extract.js && node --check dsh/mineru.js && node --check dsh/settings.js && node --check lib/client.js && node --check lib/zip.js && node --test test/*.test.mjs && node schema/contracts/validate.mjs",
+    "check": "node --check dsh/index.js && node --check dsh/store.js && node --check dsh/extract.js && node --check dsh/mineru.js && node --check dsh/settings.js && node --check lib/client.js && node --check lib/zip.js && node --test test/*.test.mjs && node schema/contracts/validate.mjs && node scripts/check-primer-links.mjs",
     "pack:check": "npm pack --dry-run",
     "trials:build": "node scripts/build-trials-db.mjs",
     "seed:demo-genomics": "node scripts/seed-ui-demo-genomics.mjs"

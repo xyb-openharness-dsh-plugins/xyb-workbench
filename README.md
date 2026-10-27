@@ -12,8 +12,8 @@
 ## 疾病概要
 
 > 四段固定、整体属解释层（第 ② 层）：只整理公开信息，不判断你的病情。
-> 看板「?」入口待原型期补（本项目原型在 `docs/design/`，未迁移到 `prototypes/`）。
-> 原件状态照实写：NCCN 与《中国肿瘤营养治疗指南》都只有项目内二次引用，**原件未取得**；页码一律待核。
+> 看板顶栏「?」已在活动原型 `docs/design/prototype-v3.html` 挂载，数据源为同目录 `primer-data.js`；本仓未迁移到 `prototypes/`。
+> 原件状态照实写：NCCN、WHO 分类与《中国肿瘤营养治疗指南》均**未取得原件**；下表与来源栏只给公开页面去向（可点链接已实测），页码一律待核。
 
 ### 定义
 
@@ -25,16 +25,16 @@
 
 诊断链条上本台只做一件事：把病理、影像、分子检测的原文抄录并标注「未核对 / 已核对」，不解释报告含义、不给出分期结论。
 
-**来源**：NCCN · NCCN Guidelines · Pancreatic Adenocarcinoma · 2025.V1（据本项目 `docs/design/TARGET-PANEL-SPEC.md` 二次引用；更新日与生效日待核）· 未取得原件，据二次来源 · 页码待核 ｜ 本项目 `docs/design/TARGET-PANEL-SPEC.md`（2026-10-13 设计建议稿）· 一手项目文件
+**来源**：WHO · Classification of Tumours: Digestive System Tumours, 5th ed.（2019）· 未取得全书，据[IARC 出版方页面](https://publications.iarc.fr/Book-And-Report-Series/Who-Classification-Of-Tumours/Digestive-System-Tumours-2019) · 页码待核 ｜ NCCN · NCCN Guidelines · Pancreatic Adenocarcinoma · 2025.V1（据本项目 `docs/design/TARGET-PANEL-SPEC.md` 二次引用；更新日与生效日待核）· 未取得原件，据[NCCN 官网指南详情页](https://www.nccn.org/guidelines/guidelines-detail?category=1&id=1455) · 页码待核 ｜ 本项目 `docs/design/TARGET-PANEL-SPEC.md`（2026-10-13 设计建议稿）· 一手项目文件
 
 ### 医学资料规范和指南情况
 
 | 机构 | 文件 | 版本 / 年份 | 原件 | 本台的用途 |
 |---|---|---|---|---|
-| NCCN | NCCN Guidelines · Pancreatic Adenocarcinoma | 2025.V1（据 `docs/design/TARGET-PANEL-SPEC.md` 二次引用，更新日与生效日待核） | 未取得原件 | 靶点面板清单与治疗路径的版本依据；不引具体条目 |
-| 中国抗癌协会等（编发机构待核） | 《中国肿瘤营养治疗指南》胰腺癌章节 | 2020 版 | 未取得原件 | 能量与营养目标公式的依据（`docs/design/CARE-MANAGEMENT-SPEC.md`） |
-| CSCO | 胰腺癌诊疗指南 | 版本未核实（项目 docs 未记录） | 未取得原件 | 国内可及性与实践差异；核实前**不作引用依据** |
-| WHO | 消化系统肿瘤分类 | 版本未核实 | 未取得原件 | 病理命名口径（导管腺癌与神经内分泌肿瘤的区分） |
+| NCCN | NCCN Guidelines · Pancreatic Adenocarcinoma | 2025.V1（据 `docs/design/TARGET-PANEL-SPEC.md` 二次引用，更新日与生效日待核） | 未取得原件（[NCCN 官网指南详情页](https://www.nccn.org/guidelines/guidelines-detail?category=1&id=1455)） | 靶点面板清单与治疗路径的版本依据；不引具体条目 |
+| 中国抗癌协会等（编发机构待核） | 《中国肿瘤营养治疗指南》胰腺癌章节 | 2020 版 | 未取得原件（仅有图书/阅读平台条目，无公开 PDF） | 能量与营养目标公式的依据（`docs/design/CARE-MANAGEMENT-SPEC.md`） |
+| CSCO | 胰腺癌诊疗指南 | 版本未核实（项目 docs 未记录） | 未取得原件（官网订购页/官方 App 发布，需登录） | 国内可及性与实践差异；核实前**不作引用依据** |
+| WHO | 消化系统肿瘤分类 | 第 5 版（2019） | 未取得全书（[IARC 出版方页面](https://publications.iarc.fr/Book-And-Report-Series/Who-Classification-Of-Tumours/Digestive-System-Tumours-2019)） | 病理命名口径（导管腺癌与神经内分泌肿瘤的区分） |
 
 未取得原件的文件，本台只记「存在」与「大致讲什么」，不引用条文、推荐等级或剂量。指南给的是「通常怎么做」，不是「你该怎么做」。
 
@@ -52,7 +52,7 @@
 
 以上是文献与指南里列出的手段，按病期与线序排列，**不代表任何一项适合你**。选哪一个，这一句需要问你的医生。
 
-**来源**：NCCN · NCCN Guidelines · Pancreatic Adenocarcinoma（2025.V1，二次引用）· 未取得原件 · 页码待核 ｜ CSCO · 胰腺癌诊疗指南（版本未核实）· 未取得原件 · 页码待核
+**来源**：NCCN · NCCN Guidelines · Pancreatic Adenocarcinoma（2025.V1，二次引用）· 未取得原件，据[NCCN 官网指南详情页](https://www.nccn.org/guidelines/guidelines-detail?category=1&id=1455) · 页码待核 ｜ CSCO · 胰腺癌诊疗指南（版本未核实）· 未取得原件（官网订购页/官方 App 发布，需登录）· 页码待核
 
 ### 发展趋势
 
@@ -62,7 +62,7 @@
 - 2020 年：《中国肿瘤营养治疗指南》2020 版发布，其中胰腺癌章节被本项目用作能量与营养目标的依据（据 `docs/design/CARE-MANAGEMENT-SPEC.md`；出版信息待核，原件未取得）。
 - 临床研究登记的数量与阶段分布、国内监管批件：**本台尚未整理**——项目 docs 里没有检索日期与检索式，不填数字、不写批件号。
 
-**来源**：本项目 `docs/design/TARGET-PANEL-SPEC.md`（2026-10-13）与 `docs/design/CARE-MANAGEMENT-SPEC.md`（2026-10-13）· 一手项目文件 ｜ 其余条目本台尚未整理
+**来源**：WHO · Classification of Tumours: Digestive System Tumours, 5th ed.（2019）· 未取得全书，据[IARC 出版方页面](https://publications.iarc.fr/Book-And-Report-Series/Who-Classification-Of-Tumours/Digestive-System-Tumours-2019) · 页码待核 ｜ 本项目 `docs/design/TARGET-PANEL-SPEC.md`（2026-10-13）与 `docs/design/CARE-MANAGEMENT-SPEC.md`（2026-10-13）· 一手项目文件 ｜ 其余条目本台尚未整理
 
 ## 功能
 

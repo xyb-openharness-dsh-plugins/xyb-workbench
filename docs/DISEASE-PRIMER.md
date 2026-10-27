@@ -6,16 +6,17 @@
 - 项目 / 品牌：小胰宝工作台（xyb-workbench，胰腺癌母版）
 - 病种：胰腺癌（Pancreatic Cancer），默认指胰腺导管腺癌（PDAC）
 - 最后更新：2026-10-25
-- 数据文件：`prototypes/<vX>/primer-data.js`（`window.DISEASE_PRIMER`）——**待原型期**；现有原型在 `docs/design/`
+- 数据文件：`docs/design/primer-data.js`（`window.DISEASE_PRIMER`）；模块 `docs/design/primer.js` / `primer.css`，挂载页 `docs/design/prototype-v3.html`
 - README 对应段：`## 疾病概要`
 
 ## 0 原件状态（本项目的前提）
 
 | 文件 | 状态 |
 |---|---|
-| NCCN 胰腺癌指南 2025.V1 | 只见于 `docs/design/TARGET-PANEL-SPEC.md`（2026-10-13）的**二次引用**，**原件未取得**，更新日与生效日待核 |
-| 《中国肿瘤营养治疗指南》2020 版（胰腺癌章节） | 只见于 `docs/design/CARE-MANAGEMENT-SPEC.md` 的**二次引用**，**原件未取得**，出版信息待核 |
-| CSCO 胰腺癌指南、WHO 消化系统肿瘤分类 | 项目 docs **未记录版本**，一律「版本未核实」 |
+| NCCN 胰腺癌指南 2025.V1 | 只见于 `docs/design/TARGET-PANEL-SPEC.md`（2026-10-13）的**二次引用**，**原件未取得**，更新日与生效日待核；可点去向：<https://www.nccn.org/guidelines/guidelines-detail?category=1&id=1455>（官网指南详情页，已实测） |
+| 《中国肿瘤营养治疗指南》2020 版（胰腺癌章节） | 只见于 `docs/design/CARE-MANAGEMENT-SPEC.md` 的**二次引用**，**原件未取得**，出版信息待核；无公开 PDF，数据里标 `nolink` + 原因 |
+| CSCO 胰腺癌指南 | 项目 docs **未记录版本**，一律「版本未核实」；官网订购页/官方 App 发布，需登录，未取得公开 PDF |
+| WHO 消化系统肿瘤分类 | 第 5 版（2019），**未取得全书**；可点去向：<https://publications.iarc.fr/Book-And-Report-Series/Who-Classification-Of-Tumours/Digestive-System-Tumours-2019>（IARC 出版方页面，已实测） |
 
 所以：页码「页码待核」，来源栏统一「未取得原件，据二次来源」。**没看到原件，不许假装看到了。**
 
@@ -94,28 +95,31 @@
 
 ## 5 落地清单
 
-- [ ] `prototypes/<vX>/primer.css`（从 `assets/patterns/disease-primer.css` 复制，按项目令牌微调颜色变量，**不改结构**）——待原型期
-- [ ] `prototypes/<vX>/primer.js`（从 `assets/patterns/disease-primer.js` 复制，不改逻辑）——待原型期
-- [ ] `prototypes/<vX>/primer-data.js`（本文件四段转成 `window.DISEASE_PRIMER`）——待原型期
-- [ ] `index.html` 三处引用：`<link rel="stylesheet" href="primer.css">` / `<script src="primer-data.js">` / `<script src="primer.js">`——待原型期
-- [ ] 顶栏出现「?」（不写按钮也行，模块会自动插进 `.top-actions`；自定义位置就放 `<button data-primer-open>`）——待原型期
+- [x] `docs/design/primer.css`（从 `assets/patterns/disease-primer.css` 复制，不改结构）
+- [x] `docs/design/primer.js`（从 `assets/patterns/disease-primer.js` 复制，不改逻辑）
+- [x] `docs/design/primer-data.js`（本文件四段转成 `window.DISEASE_PRIMER`）
+- [x] `prototype-v3.html` 三处引用：`<link rel="stylesheet" href="primer.css">` / `<script src="primer-data.js">` / `<script src="primer.js">`
+- [x] 顶栏出现「?」（`.top-actions` 内手写 `[data-primer-open]`，模块接管并补 a11y）
 - [x] README 的 `## 疾病概要` 四段正文写好，小标题与数据文件一致
-- [ ] `node scripts/probe-disease-primer.mjs --url <原型地址>` 全绿，`--self-test` 至少 3 条 FAIL——待原型期
+- [x] 用 starter 探针（临时复制到 `scripts/` 运行，跑完删除）打 `http://127.0.0.1:8183/docs/design/prototype-v3.html`，全绿（10/10）
 
-## 6 验收（P1–P8）
+## 6 验收（P1–P9）
 
-本项目原型在 `docs/design/`、未迁移到 `prototypes/`，也没有 `primer-data.js`，**P1–P8 全部记「待原型期」，不打勾**。
+本项目原型在 `docs/design/`、未迁移到 `prototypes/`；primer 三件套与顶栏入口已落到 `docs/design/`，2026-10-27 实测如下。
 
 | 编号 | 判据 | 结果 |
 |---|---|---|
-| P1 | 顶栏有可点「?」，aria-label 说明四段 | 待原型期 |
-| P2 | 整页面板，四段齐全且顺序为 定义 → 指南 → 治疗全景 → 趋势 | 待原型期 |
-| P3 | 面板宽高 ≥ 视口 90% | 待原型期 |
-| P4 | 打开压一条 history，`history.back()` 收起 | 待原型期 |
-| P5 | 「返回」「关闭」两个独立入口 | 待原型期 |
-| P6 | 关闭后焦点回触发按钮、滚动位置不变 | 待原型期 |
-| P7 | Esc 只退一层 | 待原型期 |
-| P8 | 四段齐全、每段有来源、趋势段无禁止词 | 待原型期 |
+| P1 | 顶栏有可点「?」，aria-label 说明四段 | PASS |
+| P2 | 整页面板，四段齐全且顺序为 定义 → 指南 → 治疗全景 → 趋势 | PASS |
+| P3 | 面板宽高 ≥ 视口 90% | PASS |
+| P4 | 打开压一条 history，`history.back()` 收起 | PASS |
+| P5 | 「返回」「关闭」两个独立入口 | PASS |
+| P6 | 关闭后焦点回触发按钮、滚动位置不变 | PASS |
+| P7 | Esc 只退一层 | PASS |
+| P8 | 四段齐全、每段有来源、趋势段无禁止词 | PASS |
+| P9 | 排版对齐（1440/900/390 三档，文本右极差 ≤2px） | PASS |
+
+`node scripts/check-primer-links.mjs`：14 项断言全过（2 条唯一 OK 链接、7 个链接声明位、7 处 `nolink` + note）。
 
 ## 7 本项目教训
 

@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-10-27 · 36 号 v2 引入（指南可点 + 状态卡）（包版本 0.1.35）
+
+按 `primer-backfill-2026-10-27` 协议补齐疾病概要 v2。本仓没有 `prototypes/`，活动原型是 `docs/design/prototype-v3.html`，因此落点在原型与文档层；`public/` 仍为空、插件只注册 `/api`，**未做装机版 UI 承诺**。
+
+- **模式三件套落到 `docs/design/`**：`primer.js` / `primer.css` 取自 starter 最新版（文件名不变），新增 `primer-data.js`（`window.DISEASE_PRIMER`）。`prototype-v3.html` 顶栏 `.top-actions` 加「?」按钮（`data-primer-open`，模块接管补 a11y），页尾按 data → module 顺序引用。
+- **§2.5 指南原件可点**：NCCN 行指向 NCCN 官网指南详情页、WHO 行指向 IARC 出版方页面（两条均用真浏览器 `verify-links.mjs` 实测 OK）；《中国肿瘤营养治疗指南》2020 与 CSCO 指南拿不到公开 PDF（前者仅图书/阅读平台条目，后者经官网订购页/官方 App 发布需登录），如实标 `nolink` + 原因，**未编 URL**。链接断言 14 项全过。
+- **§2.1 四段**：`definition → evidence → landscape → trend` 顺序固定，每段带来源；趋势段只写已发生事实+日期，无禁止词。
+- **§2.6 看板首卡状态卡**：新增 `.psc` 四件（eyebrow / 大字天数 / 现状行 / 出口按钮排）。本仓无锚点日数据，整卡显示「待初始化」并指向三步初始化第 1 步；副按钮「疾病概要：胰腺癌是什么？」打开浮窗。
+- **排版对齐（§4.3）**：本页存在裸 `p{max-width:…}`，会穿透进浮窗把正文卡窄；在项目样式里只对 `#disease-primer` 的 `.dp-lead` / `.dp-points li` / `.dp-src` 解除 `max-width`。P9 在 1440/900/390 三档均通过。
+- **原型两处既有 JS 报错顺带修复**（不修则探针 E0 不绿）：`#appetite` 不存在时 `addEventListener` 抛错；该异常同时导致后续 `indicatorCatalog` 未初始化。现加存在性守卫。
+- **验证**：`probe-disease-primer.mjs` 10/10 PASS（P1–P9 + E0）；`npm run check` 追加 `node scripts/check-primer-links.mjs` 后退出 0。
+- 未完成：装机副本刷新与真机抽查（需宿主），本包只升版本未打包。
+
 ## 2026-10-22 · MinerU 跨工作台统一口径（包版本 0.1.34）
 
 用户给了四条口径并逐条拍板：「默认 precision / 可选 flash；precision 走 API v4 四步；token 必需且 `.secrets/mineru.json` 唯一；flash 免 token 只回 markdown」。本轮把能落地的两条落到代码，把落不了的一条改成如实标注。
