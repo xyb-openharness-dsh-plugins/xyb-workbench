@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-10-27 · 装机版疾病概要入口 + public 原型恢复（包版本 0.1.36）
+
+上一轮把疾病概要 v2 落在 `docs/design/` 原型与文档层，但装机后看不到；本轮把入口做进宿主加载的 React 客户端，并恢复 `public/` 原型页。
+
+- **`lib/client.js` 顶栏入口**：`.xyb-top-actions`（「大字 / 设置」同一排）加「疾病概要 ?」按钮，`data-primer-open`，`aria-label` 写全四段。点击打开整页浮窗，四段顺序 `definition → evidence → landscape → trend`；指南表与来源栏的 https 链接可点，缺链接行显示「未取得原件」+ 原因，不编 URL。关闭提供「← 返回」「关闭」两个入口，并支持 Esc；关闭后焦点回到触发按钮。
+- **数据内联**：`docs/design/primer-data.js` 的 `window.DISEASE_PRIMER` 内容复制为 `lib/client.js` 内的 `DISEASE_PRIMER` 常量（模块加载器不保证相对 require）；README、原型与装机版三处同源。
+- **`public/` 恢复**：以 `docs/design/prototype-v3.html` 为源生成 `public/index.html`（并保留同名 `prototype-v3.html`），复制 `小胰宝 · 工作台原型 v3_files/`（echarts、logo）与 `assets/` 中被引用的三张图，再放入 `primer.js/.css/.data.js`。页面可本地静态打开，浮窗与看板状态卡正常。
+- **`dsh/index.js` 静态路由**：`/api/xyb-workbench/ui/` 前缀挂载 `public/`，沿用 `connection.requestRejection` 鉴权；`/api/xyb-workbench/ui` 无斜杠时 302 到带斜杠路径。只接受 GET/HEAD，路径 decode 后 resolve 并校验仍在 `public/` 内（`..` / `%2f` 越界返回 403），不与现有业务 API 的 exact 路由重叠。
+- **测试**：新增 `test/primer-ui.test.mjs`：断言客户端含入口/四段顺序/关闭方式/NCCN 链接，`public/` 关键文件存在，静态路由可返回 index 与 primer-data.js、越界 403、缺文件 404、鉴权拒绝 401。
+- **验证**：`npm run check` 退出 0；`public/index.html` 用 starter 探针 10/10 PASS（P1–P9 + E0）。
+- 装机注意：安装新 tgz 后需宿主重新加载客户端；原型页地址为 `/api/xyb-workbench/ui/`，同样走 connection 鉴权，未登录会被拒绝。
+
+
 ## 2026-10-27 · 36 号 v2 引入（指南可点 + 状态卡）（包版本 0.1.35）
 
 按 `primer-backfill-2026-10-27` 协议补齐疾病概要 v2。本仓没有 `prototypes/`，活动原型是 `docs/design/prototype-v3.html`，因此落点在原型与文档层；`public/` 仍为空、插件只注册 `/api`，**未做装机版 UI 承诺**。

@@ -7,6 +7,7 @@
 - 病种：胰腺癌（Pancreatic Cancer），默认指胰腺导管腺癌（PDAC）
 - 最后更新：2026-10-25
 - 数据文件：`docs/design/primer-data.js`（`window.DISEASE_PRIMER`）；模块 `docs/design/primer.js` / `primer.css`，挂载页 `docs/design/prototype-v3.html`
+- 装机版：`lib/client.js` 内联同一份四段数据，顶栏 `.xyb-top-actions` 有「疾病概要 ?」入口；`public/index.html` 是原型静态副本，由 `dsh/index.js` 挂到 `/api/xyb-workbench/ui/`
 - README 对应段：`## 疾病概要`
 
 ## 0 原件状态（本项目的前提）
@@ -100,6 +101,8 @@
 - [x] `docs/design/primer-data.js`（本文件四段转成 `window.DISEASE_PRIMER`）
 - [x] `prototype-v3.html` 三处引用：`<link rel="stylesheet" href="primer.css">` / `<script src="primer-data.js">` / `<script src="primer.js">`
 - [x] 顶栏出现「?」（`.top-actions` 内手写 `[data-primer-open]`，模块接管并补 a11y）
+- [x] `public/` 恢复：`index.html` + `小胰宝 · 工作台原型 v3_files/` + `assets/` + primer 三件套，经 `/api/xyb-workbench/ui/` 访问
+- [x] `lib/client.js` 顶栏「疾病概要 ?」入口与四段浮窗（返回/关闭/Esc），数据内联自 `primer-data.js`
 - [x] README 的 `## 疾病概要` 四段正文写好，小标题与数据文件一致
 - [x] 用 starter 探针（临时复制到 `scripts/` 运行，跑完删除）打 `http://127.0.0.1:8183/docs/design/prototype-v3.html`，全绿（10/10）
 

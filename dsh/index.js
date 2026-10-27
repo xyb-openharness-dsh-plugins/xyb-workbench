@@ -1,6 +1,7 @@
 import Schema from '@deepseek-ai/schemastery'
 import { mkdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { extname, join, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { openStore } from './store.js'
 import { readSettings, readWorkbenchSettings, resolveMineruToken, saveWorkbenchSettings, setDataRoot } from './settings.js'
 import { extractWithMineru } from './mineru.js'
@@ -10,6 +11,51 @@ export const name = 'xyb-workbench-main'
 export const inject = ['webServer', 'connection']
 export const Config = Schema.object({ root: Schema.string().required() })
 const packageMetadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+
+/* 恢复的 public/ 原型页：挂到 /api/xyb-workbench/ui/（复用 connection 鉴权，不与业务 API 路由重叠） */
+export const UI_PREFIX = '/api/xyb-workbench/ui'
+const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url))
+const UI_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.mp4': 'video/mp4',
+}
+
+async function handleUi(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' })
+  const url = new URL(req.url, 'http://localhost')
+  if (url.pathname !== UI_PREFIX && !url.pathname.startsWith(UI_PREFIX + '/')) return json(res, 404, { error: 'not found' })
+  let relative
+  try { relative = decodeURIComponent(url.pathname.slice(UI_PREFIX.length)) } catch { return json(res, 400, { error: '路径编码无效' }) }
+  relative = relative.replace(/^\/+/, '')
+  if (!relative || relative.endsWith('/')) relative += 'index.html'
+  const file = resolve(PUBLIC_DIR, relative)
+  /* resolve 后必须仍落在 public/ 内：挡住 ..、%2e%2e 与符号链接之外的越界路径 */
+  if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + sep)) return json(res, 403, { error: 'forbidden' })
+  try {
+    const body = await readFile(file)
+    res.writeHead(200, {
+      'content-type': UI_MIME[extname(file).toLowerCase()] || 'application/octet-stream',
+      'content-length': body.length,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    if (req.method === 'HEAD') return res.end()
+    return res.end(body)
+  } catch (error) {
+    if (error && (error.code === 'ENOENT' || error.code === 'EISDIR' || error.code === 'ENOTDIR')) return json(res, 404, { error: 'not found', path: relative })
+    return json(res, 500, { error: error instanceof Error ? error.message : String(error) })
+  }
+}
 
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -249,6 +295,25 @@ async function handleApi(req, res, config) {
 }
 
 export function apply(ctx, config) {
+  /* 静态原型：/api/xyb-workbench/ui/ 前缀；/api/xyb-workbench/ui 无斜杠时重定向 */
+  const guard = (handler) => (req, res) => {
+    const rejection = ctx.connection?.requestRejection?.(req)
+    if (!ctx.connection?.requestRejection || rejection !== undefined) return json(res, rejection || 403, { error: 'Authentication required' })
+    return Promise.resolve(handler(req, res)).catch(error => json(res, 500, { error: error instanceof Error ? error.message : String(error) }))
+  }
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix', path: UI_PREFIX,
+    handler: guard(handleUi),
+  }), 'xyb-workbench: ui static')
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact', path: UI_PREFIX,
+    handler: guard((req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' })
+      res.writeHead(302, { location: `${UI_PREFIX}/`, 'cache-control': 'no-store' })
+      return res.end()
+    }),
+  }), 'xyb-workbench: ui redirect')
+
   for (const path of ['/api/xyb-workbench/health', '/api/xyb-workbench/settings/data-root', '/api/xyb-workbench/settings/config', '/api/xyb-workbench/trials/meta', '/api/xyb-workbench/trials/search', '/api/xyb-workbench/trials/detail', '/api/xyb-workbench/patients', '/api/xyb-workbench/observations', '/api/xyb-workbench/observations/history', '/api/xyb-workbench/molecular-results', '/api/xyb-workbench/appointments', '/api/xyb-workbench/reminders', '/api/xyb-workbench/symptoms', '/api/xyb-workbench/care-records', '/api/xyb-workbench/mood-checkins', '/api/xyb-workbench/support-resources', '/api/xyb-workbench/treatment-cycles', '/api/xyb-workbench/nutrition', '/api/xyb-workbench/nutrition/entries', '/api/xyb-workbench/nutrition/products', '/api/xyb-workbench/nutrition/pei', '/api/xyb-workbench/trial-bookmarks', '/api/xyb-workbench/trial-subscriptions', '/api/xyb-workbench/agent-tasks', '/api/xyb-workbench/review-items', '/api/xyb-workbench/agent-tasks/session', '/api/xyb-workbench/agent-workspaces', '/api/xyb-workbench/documents', '/api/xyb-workbench/documents/content', '/api/xyb-workbench/documents/extraction', '/api/xyb-workbench/documents/parse', '/api/xyb-workbench/documents/parse/jobs', '/api/xyb-workbench/documents/parse/job', '/api/xyb-workbench/candidates', '/api/xyb-workbench/candidates/confirm', '/api/xyb-workbench/candidates/reject', '/api/xyb-workbench/dashboard', '/api/xyb-workbench/reports/export', '/api/xyb-workbench/reports/jpeg', '/api/xyb-workbench/reports/visual', '/api/xyb-workbench/reports/artifact']) {
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact', path,
